@@ -13,7 +13,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { FileViewer } from "@/components/layout/file-viewer";
+import { FileViewer } from "@/components/viewers";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Skeleton } from "@/components/ui/skeleton";
 

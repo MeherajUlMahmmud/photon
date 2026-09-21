@@ -8,6 +8,8 @@ export type WorkspaceInfo = {
 
 export type DirEntry = { name: string; kind: "dir" | "file" };
 
+export type FileStat = { size: number; modifiedAt: number };
+
 export type FileContent = {
   /** UTF-8 text; empty when `binary`. Cut at 1 MiB when `truncated`. */
   content: string;
@@ -132,6 +134,8 @@ export type PhotonApi = {
   getActiveWorkspace: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo | null>>;
   /** Lists one directory inside a workspace. `relPath` is relative to the workspace root; "" is the root. */
   listWorkspaceDir: (tokens: Tokens, workspaceId: string, relPath: string) => Promise<WithTokens<DirEntry[]>>;
+  /** Size and mtime of one file inside a workspace, without reading it. */
+  statWorkspaceFile: (tokens: Tokens, workspaceId: string, relPath: string) => Promise<WithTokens<FileStat>>;
   /** Reads one file inside a workspace for the viewer. */
   readWorkspaceFile: (tokens: Tokens, workspaceId: string, relPath: string) => Promise<WithTokens<FileContent>>;
   /** Opens the file with the OS default application. */

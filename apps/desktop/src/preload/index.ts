@@ -19,6 +19,8 @@ const photonApi: PhotonApi = {
   getActiveWorkspace: (tokens) => ipcRenderer.invoke("workspace:getActive", tokens),
   listWorkspaceDir: (tokens, workspaceId, relPath) =>
     ipcRenderer.invoke("workspace:listDir", tokens, workspaceId, relPath),
+  statWorkspaceFile: (tokens, workspaceId, relPath) =>
+    ipcRenderer.invoke("workspace:statFile", tokens, workspaceId, relPath),
   readWorkspaceFile: (tokens, workspaceId, relPath) =>
     ipcRenderer.invoke("workspace:readFile", tokens, workspaceId, relPath),
   openWorkspaceFileExternal: (tokens, workspaceId, relPath) =>

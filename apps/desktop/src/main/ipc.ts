@@ -10,6 +10,7 @@ import type {
   CompletionOutput,
   DirEntry,
   FileContent,
+  FileStat,
   LlmCall,
   LlmCallDetails,
   LlmCallQuery,
@@ -32,6 +33,28 @@ type Paginated<T> = Page<T>;
 
 /** Files above this size are cut off in the viewer; the agent should not be reading them whole anyway. */
 const FILE_VIEW_LIMIT = 1024 * 1024;
+
+/**
+ * Workspace roots seen so far, by id. The `photon-file://` protocol serves
+ * images and PDFs by streaming from disk, and it has no tokens to ask the
+ * server, so it resolves paths against this cache instead.
+ */
+const workspaceRoots = new Map<string, string>();
+
+/** Resolves `relPath` under `root`, or null when it would escape it. */
+function containedPath(root: string, relPath: string): string | null {
+  const base = resolve(root);
+  const target = resolve(base, relPath || ".");
+  const rel = relative(base, target);
+  if (rel.startsWith("..") || rel.startsWith(sep) || resolve(base, rel) !== target) return null;
+  return target;
+}
+
+/** Absolute path of a file in a workspace the renderer has already listed, or null. */
+export function cachedWorkspacePath(workspaceId: string, relPath: string): string | null {
+  const root = workspaceRoots.get(workspaceId);
+  return root ? containedPath(root, relPath) : null;
+}
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -195,14 +218,11 @@ export function registerIpc(deps: IpcDeps): void {
     relPath: string,
   ): Promise<string> {
     const page = await api.request<Paginated<WorkspaceInfo>>("GET", "/api/workspace/list/", opts);
+    for (const w of page.data) workspaceRoots.set(w.id, w.root_path);
     const ws = page.data.find((w) => w.id === workspaceId);
     if (!ws) throw new Error("Workspace not found");
-    const root = resolve(ws.root_path);
-    const target = resolve(root, relPath || ".");
-    const rel = relative(root, target);
-    if (rel.startsWith("..") || rel.startsWith(sep) || resolve(root, rel) !== target) {
-      throw new Error("Path is outside the workspace");
-    }
+    const target = containedPath(ws.root_path, relPath);
+    if (!target) throw new Error("Path is outside the workspace");
     return target;
   }
 
@@ -234,6 +254,14 @@ export function registerIpc(deps: IpcDeps): void {
         binary,
         modifiedAt: info.mtimeMs,
       };
+    }),
+  );
+
+  ipcMain.handle("workspace:statFile", (_e, tokens: Tokens, workspaceId: string, relPath: string) =>
+    withTokens(tokens, async (opts): Promise<FileStat> => {
+      const info = await stat(await insideWorkspace(opts, workspaceId, relPath));
+      if (!info.isFile()) throw new Error("Not a file");
+      return { size: info.size, modifiedAt: info.mtimeMs };
     }),
   );
 
