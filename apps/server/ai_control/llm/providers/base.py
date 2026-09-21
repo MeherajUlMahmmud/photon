@@ -57,6 +57,10 @@ class AbstractLLMProvider(ABC):
         """Build the provider SDK client."""
 
     @abstractmethod
+    def list_models(self, config: ProviderConfig) -> List[str]:
+        """Model ids the key can use, sorted. Cheap: no tokens spent. Raises on a bad key or endpoint."""
+
+    @abstractmethod
     def complete(
         self,
         messages: List[Dict[str, Any]],

@@ -15,6 +15,7 @@ import type {
   LlmCallDetails,
   LlmCallQuery,
   LlmProvider,
+  ProviderTestResult,
   Page,
   RegisterInput,
   Tokens,
@@ -305,6 +306,15 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle("ai:listProviders", (_e, tokens: Tokens) =>
     withTokens(tokens, (opts) => api.request<LlmProvider[]>("GET", "/api/ai/provider/list/", opts)),
+  );
+
+  ipcMain.handle("ai:testProvider", (_e, tokens: Tokens, provider: string, apiKey?: string) =>
+    withTokens(tokens, (opts) =>
+      api.request<ProviderTestResult>("POST", `/api/ai/provider/${encodeURIComponent(provider)}/test/`, {
+        ...opts,
+        body: apiKey ? { api_key: apiKey } : {},
+      }),
+    ),
   );
 
   ipcMain.handle("ai:createCompletion", (_e, tokens: Tokens, input: CompletionInput) =>

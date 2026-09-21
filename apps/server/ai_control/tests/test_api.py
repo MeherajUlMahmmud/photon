@@ -39,6 +39,45 @@ class LlmProviderListTests(AiApiTestsBase):
         self.assertEqual(self.client.get('/api/ai/provider/list/').status_code, 401)
 
 
+class LlmProviderTestTests(AiApiTestsBase):
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.list_models')
+    def test_stored_key_lists_models(self, list_models):
+        list_models.return_value = ['gpt-5', 'gpt-5-mini']
+        SecretService.set_api_key(self.alice, 'openai', 'sk-o')
+        res = self.client.post('/api/ai/provider/openai/test/', {}, format='json')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()['data']
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['models'], ['gpt-5', 'gpt-5-mini'])
+        self.assertTrue(data['default_model_available'])
+        self.assertEqual(list_models.call_args[0][0].api_key, 'sk-o')
+
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.list_models')
+    def test_body_key_wins_over_stored_and_is_not_saved(self, list_models):
+        list_models.return_value = []
+        SecretService.set_api_key(self.alice, 'openai', 'sk-old')
+        res = self.client.post('/api/ai/provider/openai/test/', {'api_key': 'sk-new'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(list_models.call_args[0][0].api_key, 'sk-new')
+        self.assertEqual(SecretService.get_api_key(self.alice, 'openai'), 'sk-old')
+
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.list_models', side_effect=RuntimeError('401 bad key'))
+    def test_failure_is_reported_not_raised(self, list_models):
+        res = self.client.post('/api/ai/provider/openai/test/', {'api_key': 'sk-bad'}, format='json')
+        self.assertEqual(res.status_code, 200)
+        data = res.json()['data']
+        self.assertFalse(data['ok'])
+        self.assertIn('401', data['error'])
+
+    def test_no_key_anywhere_is_400(self):
+        res = self.client.post('/api/ai/provider/openai/test/', {}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_unknown_provider_is_404(self):
+        res = self.client.post('/api/ai/provider/nope/test/', {'api_key': 'x'}, format='json')
+        self.assertEqual(res.status_code, 404)
+
+
 class CompletionTests(AiApiTestsBase):
     URL = '/api/ai/completion/create/'
 

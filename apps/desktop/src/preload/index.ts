@@ -30,6 +30,7 @@ const photonApi: PhotonApi = {
   updateProfile: (tokens, input) => ipcRenderer.invoke("user:updateProfile", tokens, input),
   changePassword: (tokens, input) => ipcRenderer.invoke("auth:changePassword", tokens, input),
   listProviders: (tokens) => ipcRenderer.invoke("ai:listProviders", tokens),
+  testProvider: (tokens, provider, apiKey) => ipcRenderer.invoke("ai:testProvider", tokens, provider, apiKey),
   createCompletion: (tokens, input) => ipcRenderer.invoke("ai:createCompletion", tokens, input),
   listLlmCalls: (tokens, query) => ipcRenderer.invoke("ai:listCalls", tokens, query ?? {}),
   getLlmCall: (tokens, id) => ipcRenderer.invoke("ai:getCall", tokens, id),

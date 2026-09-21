@@ -54,6 +54,15 @@ export type LlmProvider = {
   has_key: boolean;
 };
 
+export type ProviderTestResult = {
+  ok: boolean;
+  error: string | null;
+  /** Model ids the key can use; empty on failure. */
+  models: string[];
+  latency_ms: number;
+  default_model_available?: boolean;
+};
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 export type CompletionInput = {
@@ -148,6 +157,8 @@ export type PhotonApi = {
     input: { old_password: string; new_password: string },
   ) => Promise<WithTokens<Tokens>>;
   listProviders: (tokens: Tokens) => Promise<WithTokens<LlmProvider[]>>;
+  /** Checks a key by listing the provider's models. `apiKey` unset tests the stored key. */
+  testProvider: (tokens: Tokens, provider: string, apiKey?: string) => Promise<WithTokens<ProviderTestResult>>;
   createCompletion: (tokens: Tokens, input: CompletionInput) => Promise<WithTokens<CompletionOutput>>;
   listLlmCalls: (tokens: Tokens, query?: LlmCallQuery) => Promise<WithTokens<Page<LlmCall>>>;
   getLlmCall: (tokens: Tokens, id: string) => Promise<WithTokens<LlmCallDetails>>;

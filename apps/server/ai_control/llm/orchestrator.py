@@ -71,6 +71,12 @@ class LLMOrchestrator:
         cls._registry[str(client.api_style)] = client
 
     @classmethod
+    def client_for(cls, api_style: str) -> Optional[AbstractLLMProvider]:
+        """The registered client for a wire protocol, if any."""
+        cls._ensure_defaults()
+        return cls._registry.get(api_style)
+
+    @classmethod
     def _ensure_defaults(cls) -> None:
         if cls._initialized:
             return

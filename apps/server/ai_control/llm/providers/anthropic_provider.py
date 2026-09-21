@@ -19,6 +19,10 @@ class AnthropicLLMProvider(AbstractLLMProvider):
 
         return Anthropic(api_key=config.api_key, base_url=config.api_url or None)
 
+    def list_models(self, config: ProviderConfig) -> List[str]:
+        client = self._build_client(config)
+        return sorted(m.id for m in client.models.list(limit=1000))
+
     def complete(
         self,
         messages: List[Dict[str, Any]],

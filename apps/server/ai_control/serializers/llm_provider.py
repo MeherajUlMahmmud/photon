@@ -38,3 +38,8 @@ class LlmProviderModelSerializer:
         class Meta(LlmProviderModelSerializerMeta.Meta):
             ref_name = 'LlmProviderModelLite'
             fields = ['provider', 'name', 'default_model']
+
+
+class LlmProviderTestSerializer(serializers.Serializer):
+    """Optional key to test instead of the stored one, so a key can be checked before it is saved."""
+    api_key = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True, write_only=True)
