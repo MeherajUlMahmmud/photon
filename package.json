@@ -1,0 +1,19 @@
+{
+  "name": "photon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Photon \u2014 local-first desktop AI teammate",
+  "packageManager": "pnpm@11.17.0",
+  "scripts": {
+    "dev": "pnpm build:packages && pnpm --filter @photon/desktop run postinstall && pnpm --filter @photon/desktop dev",
+    "build": "pnpm build:packages && pnpm --filter @photon/desktop build",
+    "build:packages": "pnpm --filter @photon/shared --filter @photon/harness --filter @photon/tools run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm build:packages && pnpm -r run test",
+    "server": "cd apps/server && .venv/bin/python manage.py runserver",
+    "test:server": "cd apps/server && .venv/bin/python manage.py test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

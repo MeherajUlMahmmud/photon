@@ -1,0 +1,10 @@
+cryptography>=42
+dj-database-url==3.0.1
+Django==4.2.20
+django-cors-headers==4.3.1
+django-filter==24.2
+djangorestframework==3.15.1
+djangorestframework-simplejwt==5.3.1
+python-decouple==3.8
+anthropic>=0.50
+openai>=1.60
