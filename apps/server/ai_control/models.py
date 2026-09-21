@@ -211,6 +211,10 @@ class AgentSessionModel(BaseModel):
     model = models.CharField(max_length=120, blank=True, default="", help_text="Pinned model id, or empty for the provider default.")
     task_key = models.CharField(max_length=80, default="agent", db_index=True)
     system_prompt = models.TextField(blank=True, default="")
+    workspace_path = models.CharField(
+        max_length=1024, blank=True, default="",
+        help_text="Folder the desktop was in when the session started; overrides the workspace root in the prompt.",
+    )
     device = models.JSONField(
         default=dict, blank=True,
         help_text="Client machine as reported at creation: os, os_version, arch, shell, locale, app_version.",
