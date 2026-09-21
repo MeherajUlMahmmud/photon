@@ -1,6 +1,6 @@
 import type { BrowserWindow, Dialog } from "electron";
-import { ipcMain } from "electron";
-import { readdir } from "node:fs/promises";
+import { ipcMain, shell } from "electron";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type {
   AuthResult,
@@ -9,6 +9,7 @@ import type {
   CompletionInput,
   CompletionOutput,
   DirEntry,
+  FileContent,
   LlmCall,
   LlmCallDetails,
   LlmCallQuery,
@@ -28,6 +29,9 @@ export interface IpcDeps {
 }
 
 type Paginated<T> = Page<T>;
+
+/** Files above this size are cut off in the viewer; the agent should not be reading them whole anyway. */
+const FILE_VIEW_LIMIT = 1024 * 1024;
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -181,24 +185,71 @@ export function registerIpc(deps: IpcDeps): void {
     ),
   );
 
+  /**
+   * Absolute path of `relPath` inside a workspace. The workspace root comes
+   * from the server, never from the renderer, and the result must stay under it.
+   */
+  async function insideWorkspace(
+    opts: { tokens: Tokens; onTokensRefreshed: (t: Tokens) => void },
+    workspaceId: string,
+    relPath: string,
+  ): Promise<string> {
+    const page = await api.request<Paginated<WorkspaceInfo>>("GET", "/api/workspace/list/", opts);
+    const ws = page.data.find((w) => w.id === workspaceId);
+    if (!ws) throw new Error("Workspace not found");
+    const root = resolve(ws.root_path);
+    const target = resolve(root, relPath || ".");
+    const rel = relative(root, target);
+    if (rel.startsWith("..") || rel.startsWith(sep) || resolve(root, rel) !== target) {
+      throw new Error("Path is outside the workspace");
+    }
+    return target;
+  }
+
   ipcMain.handle("workspace:listDir", (_e, tokens: Tokens, workspaceId: string, relPath: string) =>
     withTokens(tokens, async (opts): Promise<DirEntry[]> => {
-      // The workspace root comes from the server, never from the renderer, and
-      // the requested path must stay inside it.
-      const page = await api.request<Paginated<WorkspaceInfo>>("GET", "/api/workspace/list/", opts);
-      const ws = page.data.find((w) => w.id === workspaceId);
-      if (!ws) throw new Error("Workspace not found");
-      const root = resolve(ws.root_path);
-      const target = resolve(root, relPath || ".");
-      const rel = relative(root, target);
-      if (rel.startsWith("..") || rel.startsWith(sep) || resolve(root, rel) !== target) {
-        throw new Error("Path is outside the workspace");
-      }
+      const target = await insideWorkspace(opts, workspaceId, relPath);
       const entries = await readdir(target, { withFileTypes: true });
       return entries
         .filter((d) => !d.name.startsWith("."))
         .map((d): DirEntry => ({ name: d.name, kind: d.isDirectory() ? "dir" : "file" }))
         .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1));
+    }),
+  );
+
+  ipcMain.handle("workspace:readFile", (_e, tokens: Tokens, workspaceId: string, relPath: string) =>
+    withTokens(tokens, async (opts): Promise<FileContent> => {
+      const target = await insideWorkspace(opts, workspaceId, relPath);
+      const info = await stat(target);
+      if (!info.isFile()) throw new Error("Not a file");
+      const truncated = info.size > FILE_VIEW_LIMIT;
+      const buf = await readFile(target);
+      const head = truncated ? buf.subarray(0, FILE_VIEW_LIMIT) : buf;
+      // A NUL byte in the first 8 KiB is a good-enough binary sniff.
+      const binary = head.subarray(0, 8192).includes(0);
+      return {
+        content: binary ? "" : head.toString("utf8"),
+        size: info.size,
+        truncated,
+        binary,
+        modifiedAt: info.mtimeMs,
+      };
+    }),
+  );
+
+  ipcMain.handle("workspace:openExternal", (_e, tokens: Tokens, workspaceId: string, relPath: string) =>
+    withTokens(tokens, async (opts): Promise<boolean> => {
+      const target = await insideWorkspace(opts, workspaceId, relPath);
+      const failure = await shell.openPath(target);
+      if (failure) throw new Error(failure);
+      return true;
+    }),
+  );
+
+  ipcMain.handle("workspace:reveal", (_e, tokens: Tokens, workspaceId: string, relPath: string) =>
+    withTokens(tokens, async (opts): Promise<boolean> => {
+      shell.showItemInFolder(await insideWorkspace(opts, workspaceId, relPath));
+      return true;
     }),
   );
 

@@ -26,7 +26,7 @@ export function AuthLayout() {
         <p className="text-small text-sheet/50">Local first. Your files stay on this Mac.</p>
       </aside>
       <main className="grid place-items-center bg-sheet p-8 md:p-16">
-        <div className="w-full max-w-[26rem]">
+        <div className="w-full max-w-104">
           <div className="mb-10 flex items-center gap-2.5 md:hidden">
             <span className="size-2.5 rotate-45 rounded-[2px] bg-black" aria-hidden="true" />
             <span className="text-lead">{info?.name ?? "Photon"}</span>

@@ -19,6 +19,12 @@ const photonApi: PhotonApi = {
   getActiveWorkspace: (tokens) => ipcRenderer.invoke("workspace:getActive", tokens),
   listWorkspaceDir: (tokens, workspaceId, relPath) =>
     ipcRenderer.invoke("workspace:listDir", tokens, workspaceId, relPath),
+  readWorkspaceFile: (tokens, workspaceId, relPath) =>
+    ipcRenderer.invoke("workspace:readFile", tokens, workspaceId, relPath),
+  openWorkspaceFileExternal: (tokens, workspaceId, relPath) =>
+    ipcRenderer.invoke("workspace:openExternal", tokens, workspaceId, relPath),
+  revealWorkspaceFile: (tokens, workspaceId, relPath) =>
+    ipcRenderer.invoke("workspace:reveal", tokens, workspaceId, relPath),
   updateProfile: (tokens, input) => ipcRenderer.invoke("user:updateProfile", tokens, input),
   changePassword: (tokens, input) => ipcRenderer.invoke("auth:changePassword", tokens, input),
   listProviders: (tokens) => ipcRenderer.invoke("ai:listProviders", tokens),
