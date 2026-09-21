@@ -63,7 +63,10 @@ class AgentApiTestsBase(APITestCase):
         return res.json()['data']['id']
 
     def step(self, session_id, body):
-        res = self.client.post(f'/api/ai/agent/session/{session_id}/step/stream/', body, format='json')
+        # The desktop sends this Accept header; the view must not 406 on it.
+        res = self.client.post(
+            f'/api/ai/agent/session/{session_id}/step/stream/', body, format='json', HTTP_ACCEPT='application/x-ndjson',
+        )
         # The step runs while the body streams, so drain it like a client would.
         if getattr(res, 'streaming', False):
             raw = b''.join(res.streaming_content).decode()
@@ -123,6 +126,32 @@ class SessionCreateTests(AgentApiTestsBase):
         session = AgentSessionModel.objects.get(id=sid)
         self.assertEqual(session.device, {})
         self.assertNotIn('Environment:', session.system_prompt)
+
+    def test_workspace_path_overrides_root_in_prompt(self):
+        res = self.client.post(
+            '/api/ai/agent/session/create/',
+            {'workspace_id': str(self.workspace.id), 'workspace_path': '/Volumes/work/photon'}, format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        session = AgentSessionModel.objects.get(id=res.json()['data']['id'])
+        self.assertEqual(session.workspace_path, '/Volumes/work/photon')
+        self.assertIn('Workspace: photon (root: /Volumes/work/photon).', session.system_prompt)
+        self.assertNotIn('/Users/alice/photon', session.system_prompt)
+
+    def test_update_repins_model(self):
+        sid = self.create_session()
+        res = self.client.post(f'/api/ai/agent/session/{sid}/update/', {'provider': 'anthropic', 'model': 'claude-opus-5'}, format='json')
+        self.assertEqual(res.status_code, 200, res.content)
+        session = AgentSessionModel.objects.get(id=sid)
+        self.assertEqual((session.provider, session.model), ('anthropic', 'claude-opus-5'))
+        res = self.client.post(f'/api/ai/agent/session/{sid}/update/', {'model': 'x'}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_step_errors_are_json_under_ndjson_accept(self):
+        sid = self.create_session()
+        res = self.step(sid, {'tool_results': [{'call_id': 'nope', 'ok': True}]})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('not waiting for tool results', res.json()['message'])
 
     def test_rejects_unknown_os(self):
         res = self.client.post('/api/ai/agent/session/create/', {'device': {'os': 'plan9'}}, format='json')
