@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowSquareOut, FolderOpen } from "@phosphor-icons/react";
+import { ArrowSquareOut, FolderOpen, X } from "@phosphor-icons/react";
 import type { FileContent } from "../../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -14,8 +14,18 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Read-only view of one workspace file with line numbers. */
-export function FileViewer({ workspaceId, relPath }: { workspaceId: string; relPath: string }) {
+/** Read-only view of one workspace file with line numbers. `compact` fits the narrow explorer panel. */
+export function FileViewer({
+  workspaceId,
+  relPath,
+  onClose,
+  compact = false,
+}: {
+  workspaceId: string;
+  relPath: string;
+  onClose?: () => void;
+  compact?: boolean;
+}) {
   const { call } = useAuth();
   const { toast } = useToast();
   const [file, setFile] = React.useState<FileContent | null>(null);
@@ -54,19 +64,44 @@ export function FileViewer({ workspaceId, relPath }: { workspaceId: string; relP
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-3 border-b border-border px-4">
-        <span className="truncate font-mono text-small" title={relPath}>
-          {relPath}
+      <div className={`flex shrink-0 items-center gap-2 border-b border-border ${compact ? "h-9 px-2" : "h-10 px-4"}`}>
+        <span className="min-w-0 truncate font-mono text-small" title={relPath}>
+          {compact ? name : relPath}
         </span>
-        {file && <span className="shrink-0 text-small text-slate">{formatBytes(file.size)}</span>}
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => void openExternal()} title="Open in default app">
+        {file && !compact && <span className="shrink-0 text-small text-slate">{formatBytes(file.size)}</span>}
+        <span className="ml-auto flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7"
+            onClick={() => void openExternal()}
+            aria-label="Open in default app"
+            title="Open in default app"
+          >
             <ArrowSquareOut weight="bold" />
-            Open
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => void reveal()} aria-label="Reveal in Finder" title="Reveal in Finder">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7"
+            onClick={() => void reveal()}
+            aria-label="Reveal in Finder"
+            title="Reveal in Finder"
+          >
             <FolderOpen weight="bold" />
           </Button>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7"
+              onClick={onClose}
+              aria-label="Close preview"
+              title="Close preview"
+            >
+              <X weight="bold" />
+            </Button>
+          )}
         </span>
       </div>
 
@@ -91,11 +126,15 @@ export function FileViewer({ workspaceId, relPath }: { workspaceId: string; relP
           </div>
         ) : (
           <>
-            <pre className="grid grid-cols-[auto_1fr] py-3 font-mono text-small leading-[1.6]">
+            <pre
+              className={`grid grid-cols-[auto_1fr] font-mono leading-[1.6] ${compact ? "py-2 text-xs" : "py-3 text-small"}`}
+            >
               {lines.map((line, i) => (
                 <React.Fragment key={i}>
-                  <span className="select-none pr-4 pl-4 text-right text-slate/60">{i + 1}</span>
-                  <code className="pr-6 whitespace-pre">{line}</code>
+                  <span className={`select-none text-right text-slate/60 ${compact ? "pr-2.5 pl-2" : "pr-4 pl-4"}`}>
+                    {i + 1}
+                  </span>
+                  <code className={`whitespace-pre ${compact ? "pr-3" : "pr-6"}`}>{line}</code>
                 </React.Fragment>
               ))}
             </pre>

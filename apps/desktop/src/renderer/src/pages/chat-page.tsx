@@ -8,8 +8,6 @@ import { useAsync } from "@/hooks/use-async";
 import { useChats } from "@/hooks/use-chats";
 import { useStoredFlag } from "@/hooks/use-stored-flag";
 import { FolderExplorer } from "@/components/layout/folder-explorer";
-import { FileViewer } from "@/components/layout/file-viewer";
-import { FileTabs, useOpenFiles } from "@/components/chat/file-tabs";
 import { AssistantTurn, PendingTurn, UserTurn } from "@/components/chat/turn";
 import { Composer } from "@/components/chat/composer";
 import { ModelPicker } from "@/components/chat/model-picker";
@@ -88,8 +86,6 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   const { current, model } = resolveModel(ready, chat ? { provider: chat.provider, model: chat.model } : draftPick);
 
   const [draft, setDraft] = React.useState("");
-  // Files opened from the explorer, shown as tabs beside the chat in the centre column.
-  const opened = useOpenFiles(`${chatId ?? ""}:${spaceId ?? ""}`);
   const endRef = React.useRef<HTMLDivElement>(null);
 
   const turns = chat?.turns ?? [];
@@ -127,93 +123,84 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        <FileTabs files={opened.files} active={opened.active} onSelect={opened.select} onClose={opened.close} />
-        {opened.active && space ? (
-          <FileViewer workspaceId={space.id} relPath={opened.active} />
-        ) : (
-          <>
-            <div className="min-h-0 flex-1 overflow-auto px-8 py-8 md:px-14">
-              <div className="flex flex-col gap-7">
-                {!providers.loading && !ready.length && (
-                  <Alert variant="problem">
-                    <AlertDescription>
-                      No provider has an API key yet.{" "}
-                      <Link
-                        to="/settings/providers"
-                        className="underline decoration-input underline-offset-4 hover:decoration-black"
-                      >
-                        Add one in Settings
-                      </Link>
-                      , then come back here.
-                    </AlertDescription>
-                  </Alert>
-                )}
-                {!turns.length && ready.length > 0 && (
-                  <EmptyState space={space?.name} provider={current?.name} model={model} />
-                )}
-                {turns.map((t, i) =>
-                  t.role === "user" ? (
-                    <UserTurn key={i} turn={t} initials={initials} />
-                  ) : (
-                    <AssistantTurn key={i} turn={t} />
-                  ),
-                )}
-                {busy && <PendingTurn from={current?.name} />}
-                {error && (
-                  <Alert variant="problem">
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-                <div ref={endRef} />
-              </div>
-            </div>
+        <div className="min-h-0 flex-1 overflow-auto px-8 py-8 md:px-14">
+          <div className="flex flex-col gap-7">
+            {!providers.loading && !ready.length && (
+              <Alert variant="problem">
+                <AlertDescription>
+                  No provider has an API key yet.{" "}
+                  <Link
+                    to="/settings/providers"
+                    className="underline decoration-input underline-offset-4 hover:decoration-black"
+                  >
+                    Add one in Settings
+                  </Link>
+                  , then come back here.
+                </AlertDescription>
+              </Alert>
+            )}
+            {!turns.length && ready.length > 0 && (
+              <EmptyState space={space?.name} provider={current?.name} model={model} />
+            )}
+            {turns.map((t, i) =>
+              t.role === "user" ? (
+                <UserTurn key={i} turn={t} initials={initials} />
+              ) : (
+                <AssistantTurn key={i} turn={t} />
+              ),
+            )}
+            {busy && <PendingTurn from={current?.name} />}
+            {error && (
+              <Alert variant="problem">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <div ref={endRef} />
+          </div>
+        </div>
 
-            <Composer
-              value={draft}
-              onChange={setDraft}
-              onSend={send}
-              disabled={!ready.length || busy}
-              placeholder={ready.length ? "Ask something" : "Add an API key first"}
-              actions={
-                ((chatId && turns.length > 0) || space) && (
-                  <>
-                    {chatId && turns.length > 0 && (
-                      <Button variant="ghost" size="sm" onClick={() => chats.clear(chatId)} disabled={busy}>
-                        <Broom weight="bold" />
-                        Clear conversation
-                      </Button>
-                    )}
-                    {space && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={toggleExplorer}
-                        aria-pressed={explorerOpen}
-                        aria-label={explorerOpen ? "Hide folder" : "Show folder"}
-                      >
-                        <SidebarSimple weight={explorerOpen ? "fill" : "bold"} className="rotate-180" />
-                        {space.name}
-                      </Button>
-                    )}
-                  </>
-                )
-              }
-              footer={
-                <ModelPicker
-                  providers={ready}
-                  current={current}
-                  model={model}
-                  loading={providers.loading}
-                  onPick={onPick}
-                />
-              }
+        <Composer
+          value={draft}
+          onChange={setDraft}
+          onSend={send}
+          disabled={!ready.length || busy}
+          placeholder={ready.length ? "Ask something" : "Add an API key first"}
+          actions={
+            ((chatId && turns.length > 0) || space) && (
+              <>
+                {chatId && turns.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => chats.clear(chatId)} disabled={busy}>
+                    <Broom weight="bold" />
+                    Clear conversation
+                  </Button>
+                )}
+                {space && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleExplorer}
+                    aria-pressed={explorerOpen}
+                    aria-label={explorerOpen ? "Hide folder" : "Show folder"}
+                  >
+                    <SidebarSimple weight={explorerOpen ? "fill" : "bold"} className="rotate-180" />
+                    {space.name}
+                  </Button>
+                )}
+              </>
+            )
+          }
+          footer={
+            <ModelPicker
+              providers={ready}
+              current={current}
+              model={model}
+              loading={providers.loading}
+              onPick={onPick}
             />
-          </>
-        )}
+          }
+        />
       </div>
-      {space && explorerOpen && (
-        <FolderExplorer workspaceId={space.id} name={space.name} onOpenFile={opened.open} activePath={opened.active} />
-      )}
+      {space && explorerOpen && <FolderExplorer workspaceId={space.id} name={space.name} />}
     </div>
   );
 }

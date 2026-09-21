@@ -13,6 +13,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { FileViewer } from "@/components/layout/file-viewer";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -166,20 +167,12 @@ function Entry({ entry, workspaceId, relPath, depth }: { entry: DirEntry } & Nod
 }
 
 /** Read-only tree of the workspace folder, shown beside a chat that runs in it. */
-export function FolderExplorer({
-  workspaceId,
-  name,
-  onOpenFile,
-  activePath = null,
-}: {
-  workspaceId: string;
-  name: string;
-  /** Called with the workspace-relative path when a file is clicked. */
-  onOpenFile: (relPath: string) => void;
-  activePath?: string | null;
-}) {
+export function FolderExplorer({ workspaceId, name }: { workspaceId: string; name: string }) {
   const { width, setWidth, reset, min, max } = usePanelWidth("photon.explorer.width", EXPLORER_WIDTH);
-  const ctx = React.useMemo(() => ({ onOpenFile, activePath }), [onOpenFile, activePath]);
+  // Clicked file, previewed in the lower half of the panel.
+  const [preview, setPreview] = React.useState<string | null>(null);
+  React.useEffect(() => setPreview(null), [workspaceId]);
+  const ctx = React.useMemo(() => ({ onOpenFile: setPreview, activePath: preview }), [preview]);
   return (
     <ExplorerContext.Provider value={ctx}>
       <aside
@@ -201,6 +194,11 @@ export function FolderExplorer({
         <div className="min-h-0 flex-1 overflow-auto pb-3">
           <DirChildren workspaceId={workspaceId} relPath="" depth={0} />
         </div>
+        {preview && (
+          <div className="flex h-1/2 min-h-0 shrink-0 flex-col border-t border-border bg-background">
+            <FileViewer workspaceId={workspaceId} relPath={preview} onClose={() => setPreview(null)} compact />
+          </div>
+        )}
       </aside>
     </ExplorerContext.Provider>
   );
