@@ -107,3 +107,62 @@ class RunCompletionTests(OrchestratorTestsBase):
         SecretService.set_api_key(self.user, 'openai', 'sk-o')
         with self.assertRaises(AiUnavailableError):
             LLMOrchestrator.run_completion(user=self.user, messages=MESSAGES)
+
+
+def _stream(chunks, result=None, fail_after=None):
+    """Generator factory mimicking ``complete_stream``: yields chunks, returns a result."""
+    def gen(*args, **kwargs):
+        for i, chunk in enumerate(chunks):
+            if fail_after is not None and i == fail_after:
+                raise RuntimeError('cut')
+            yield chunk
+        return result or _ok(''.join(chunks))
+    return gen
+
+
+class StreamCompletionTests(OrchestratorTestsBase):
+    @mock.patch('ai_control.llm.providers.anthropic_provider.AnthropicLLMProvider.complete_stream', new=_stream(['hel', 'lo']))
+    def test_streams_deltas_then_done_and_records_call(self):
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+
+        events = list(LLMOrchestrator.stream_completion(user=self.user, messages=MESSAGES))
+
+        self.assertEqual([e['type'] for e in events], ['start', 'delta', 'delta', 'done'])
+        self.assertEqual(events[0]['provider'], 'anthropic')
+        self.assertEqual(''.join(e['text'] for e in events if e['type'] == 'delta'), 'hello')
+        call = LlmApiCallModel.objects.get(id=events[-1]['call_id'])
+        self.assertEqual(call.status, 'success')
+        self.assertEqual(call.response_text, 'hello')
+        self.assertTrue(call.prompt_metadata['streamed'])
+
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.complete_stream', new=_stream(['ok']))
+    @mock.patch('ai_control.llm.providers.anthropic_provider.AnthropicLLMProvider.complete_stream', new=_stream(['x'], fail_after=0))
+    def test_falls_through_when_provider_fails_before_first_delta(self):
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+        SecretService.set_api_key(self.user, 'openai', 'sk-o')
+
+        events = list(LLMOrchestrator.stream_completion(user=self.user, messages=MESSAGES))
+
+        self.assertEqual([e['type'] for e in events], ['start', 'delta', 'done'])
+        self.assertEqual(events[0]['provider'], 'openai')
+        statuses = list(LlmApiCallModel.objects.order_by('created_at').values_list('provider', 'status'))
+        self.assertEqual(statuses, [('anthropic', 'error'), ('openai', 'success')])
+
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.complete_stream', new=_stream(['ok']))
+    @mock.patch('ai_control.llm.providers.anthropic_provider.AnthropicLLMProvider.complete_stream', new=_stream(['a', 'b'], fail_after=1))
+    def test_mid_stream_failure_ends_with_error_and_no_fallback(self):
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+        SecretService.set_api_key(self.user, 'openai', 'sk-o')
+
+        events = list(LLMOrchestrator.stream_completion(user=self.user, messages=MESSAGES))
+
+        self.assertEqual([e['type'] for e in events], ['start', 'delta', 'error'])
+        self.assertIn('anthropic stopped answering', events[-1]['message'])
+        error_call = LlmApiCallModel.objects.get(status='error')
+        self.assertEqual(error_call.prompt_metadata['partial_chars'], 1)
+        self.assertFalse(LlmApiCallModel.objects.filter(provider='openai').exists())
+
+    def test_no_keys_yields_single_error(self):
+        events = list(LLMOrchestrator.stream_completion(user=self.user, messages=MESSAGES))
+        self.assertEqual([e['type'] for e in events], ['error'])
+        self.assertIn('No API key saved', events[0]['message'])
