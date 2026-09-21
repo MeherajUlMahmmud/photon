@@ -45,7 +45,7 @@ export function SecuritySettingsPage() {
 
   return (
     <SettingsSection title="Password" description="Changing it signs out every other device. This one stays signed in.">
-      <form className="grid max-w-md gap-5" onSubmit={(e) => void submit(e)}>
+      <form className="grid max-w-lg gap-4" onSubmit={(e) => void submit(e)}>
         <PasswordField
           name="old_password"
           label="Current password"

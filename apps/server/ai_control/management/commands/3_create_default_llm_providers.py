@@ -35,7 +35,10 @@ DEFAULT_PROVIDERS = [
         "default_model": "gpt-5",
         "model_ids": ["gpt-5", "gpt-5-mini", "gpt-4.1"],
         "priority": 20,
-        "capabilities": CHAT_JSON_TOOLS + [LlmCapabilityChoices.VISION.value],
+        "capabilities": CHAT_JSON_TOOLS + [
+            LlmCapabilityChoices.VISION.value,
+            LlmCapabilityChoices.TRANSCRIPTION.value,
+        ],
     },
     {
         "provider": LlmProviderChoices.NVIDIA.value,

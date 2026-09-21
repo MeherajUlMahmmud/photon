@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 DEFAULT_LLM_CONFIG = {
     "temperature": 0.2,
@@ -68,6 +68,19 @@ class AbstractLLMProvider(ABC):
         llm_config: Optional[Dict[str, Any]] = None,
     ) -> CompletionResult:
         """Run a chat completion. Raises on provider failure; the orchestrator records and falls through."""
+
+    @abstractmethod
+    def complete_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        config: ProviderConfig,
+        llm_config: Optional[Dict[str, Any]] = None,
+    ) -> Generator[str, None, CompletionResult]:
+        """
+        Run a chat completion, yielding text deltas as they arrive. The
+        generator's return value is the finished ``CompletionResult`` (full
+        text plus usage). Raises on provider failure, possibly mid-stream.
+        """
 
     @staticmethod
     def build_llm_config(llm_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:

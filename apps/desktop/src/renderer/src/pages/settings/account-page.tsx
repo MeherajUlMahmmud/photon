@@ -32,7 +32,7 @@ export function AccountSettingsPage() {
     <>
       <SettingsSection title="Your name" description="Shown in the sidebar. The email address is your sign-in and cannot change here.">
         <form
-          className="grid max-w-md gap-5"
+          className="grid max-w-lg gap-4"
           onSubmit={(e) => {
             e.preventDefault();
             void save();

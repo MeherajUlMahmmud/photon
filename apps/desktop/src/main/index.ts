@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ApiClient } from "./api-client.js";
 import { cachedWorkspacePath, registerIpc } from "./ipc.js";
+import { registerDictationIpc } from "./dictation.js";
 
 /**
  * `photon-file://<workspaceId>/<relative/path>` streams a workspace file to
@@ -56,6 +57,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   protocol.handle(FILE_SCHEME, serveWorkspaceFile);
   registerIpc({ api: new ApiClient(API_URL), getWindow: () => mainWindow, dialog });
+  registerDictationIpc(() => mainWindow);
 
   createWindow();
 

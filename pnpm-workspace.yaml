@@ -6,3 +6,5 @@ allowBuilds:
   better-sqlite3: set this to true or false
   electron: true
   esbuild: true
+  onnxruntime-node: false
+  protobufjs: false

@@ -6,6 +6,7 @@ import type {
   AuthResult,
   AuthSession,
   AuthUser,
+  CompletionEvent,
   CompletionInput,
   CompletionOutput,
   DirEntry,
@@ -19,6 +20,8 @@ import type {
   Page,
   RegisterInput,
   Tokens,
+  TranscriptionInput,
+  TranscriptionOutput,
   WithTokens,
   WorkspaceInfo,
 } from "../preload/api.js";
@@ -320,6 +323,38 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("ai:createCompletion", (_e, tokens: Tokens, input: CompletionInput) =>
     withTokens(tokens, (opts) =>
       api.request<CompletionOutput>("POST", "/api/ai/completion/create/", { ...opts, body: input }),
+    ),
+  );
+
+  const streams = new Map<string, AbortController>();
+
+  ipcMain.handle("ai:streamCompletion", (e, tokens: Tokens, streamId: string, input: CompletionInput) =>
+    withTokens(tokens, async (opts) => {
+      const controller = new AbortController();
+      streams.set(streamId, controller);
+      try {
+        await api.stream<CompletionEvent>("/api/ai/completion/stream/", {
+          ...opts,
+          body: input,
+          signal: controller.signal,
+          onLine: (event) => {
+            if (!e.sender.isDestroyed()) e.sender.send("ai:completionEvent", streamId, event);
+          },
+        });
+      } finally {
+        streams.delete(streamId);
+      }
+      return null;
+    }),
+  );
+
+  ipcMain.handle("ai:cancelCompletion", (_e, streamId: string) => {
+    streams.get(streamId)?.abort();
+  });
+
+  ipcMain.handle("ai:transcribe", (_e, tokens: Tokens, input: TranscriptionInput) =>
+    withTokens(tokens, (opts) =>
+      api.request<TranscriptionOutput>("POST", "/api/ai/transcription/create/", { ...opts, body: input }),
     ),
   );
 

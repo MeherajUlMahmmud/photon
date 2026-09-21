@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { ChatMessage } from "../../../preload/api";
+import type { ChatMessage, CompletionEvent } from "../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
@@ -7,6 +7,8 @@ import { errorMessage } from "@/lib/utils";
 export type Turn = ChatMessage & {
   /** When the turn was sent or received, epoch ms. Older saved turns may lack it. */
   at?: number;
+  /** True while the reply is still arriving; never persisted as true. */
+  streaming?: boolean;
   meta?: {
     provider: string;
     model: string;
@@ -41,6 +43,8 @@ type ChatsContextValue = {
   /** Send a message. `id` null starts a new chat; returns the chat id either way. */
   send: (id: string | null, content: string, opts: SendOptions) => string;
   isBusy: (id: string) => boolean;
+  /** Cancels the reply in flight for a chat; whatever arrived so far stays. */
+  stop: (id: string) => void;
   errorOf: (id: string) => string | null;
   /** Changes the provider and model an existing conversation will use from now on. */
   setModel: (id: string, provider: string, model: string) => void;
@@ -71,7 +75,9 @@ function readChats(userId: string): Chat[] {
 
 function writeChats(userId: string, chats: Chat[]) {
   try {
-    window.localStorage.setItem(storageKey(userId), JSON.stringify(chats));
+    // A reload mid-answer must not leave a turn stuck in the streaming state.
+    const settled = chats.map((c) => ({ ...c, turns: c.turns.map(({ streaming: _, ...t }) => t) }));
+    window.localStorage.setItem(storageKey(userId), JSON.stringify(settled));
   } catch {
     // Storage full or unavailable; the in-memory copy still works for this session.
   }
@@ -108,6 +114,15 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const [chats, setChats] = React.useState<Chat[]>(() => (userId ? readChats(userId) : []));
   const [busy, setBusy] = React.useState<Record<string, true>>({});
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+  /** streamId -> handler for that stream's events. */
+  const pendingStreams = React.useRef(new Map<string, (event: CompletionEvent) => void>());
+  /** chatId -> streamId currently answering it, for `stop`. */
+  const activeStreams = React.useRef(new Map<string, string>());
+
+  React.useEffect(
+    () => window.photon.onCompletionEvent((streamId, event) => pendingStreams.current.get(streamId)?.(event)),
+    [],
+  );
 
   // Swap the list when the signed-in user changes.
   React.useEffect(() => {
@@ -175,10 +190,54 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       setErrors((e) => ({ ...e, [target]: "" }));
       setBusy((b) => ({ ...b, [target]: true }));
 
+      // One stream per send. The reply grows in place as deltas arrive; the
+      // assistant turn is only added once the provider has started answering.
+      const streamId = newId();
+      let started = false;
+      const handlers = {
+        start(ev: Extract<CompletionEvent, { type: "start" }>) {
+          started = true;
+          patchTurns(target, (prev) => [
+            ...prev,
+            { role: "assistant", content: "", at: Date.now(), streaming: true, meta: { ...ev, call_id: "" } },
+          ]);
+        },
+        delta(ev: Extract<CompletionEvent, { type: "delta" }>) {
+          patchTurns(target, (prev) => {
+            const last = prev[prev.length - 1];
+            if (!last?.streaming) return prev;
+            return [...prev.slice(0, -1), { ...last, content: last.content + ev.text }];
+          });
+        },
+        done(ev: Extract<CompletionEvent, { type: "done" }>) {
+          patchTurns(target, (prev) => {
+            const last = prev[prev.length - 1];
+            if (!last?.streaming) return prev;
+            const meta = {
+              provider: ev.provider,
+              model: ev.model,
+              inputTokens: ev.usage.input_tokens,
+              outputTokens: ev.usage.output_tokens,
+              tokens: ev.usage.total_tokens,
+              call_id: ev.call_id,
+            };
+            return [...prev.slice(0, -1), { ...last, streaming: false, meta }];
+          });
+        },
+        error(ev: Extract<CompletionEvent, { type: "error" }>) {
+          setErrors((e) => ({ ...e, [target]: ev.message }));
+        },
+      };
+      pendingStreams.current.set(streamId, (event) => {
+        // The union narrows per branch; the cast keeps each handler typed to its own event.
+        (handlers[event.type] as (ev: CompletionEvent) => void)(event);
+      });
+      activeStreams.current.set(target, streamId);
+
       void (async () => {
         try {
-          const out = await call((t) =>
-            window.photon.createCompletion(t, {
+          await call((t) =>
+            window.photon.streamCompletion(t, streamId, {
               messages: [
                 { role: "system", content: SYSTEM_PROMPT },
                 ...history.map(({ role, content }) => ({ role, content })),
@@ -188,25 +247,18 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
               task_key: "chat",
             }),
           );
-          patchTurns(target, (prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content: out.content,
-              at: Date.now(),
-              meta: {
-                provider: out.provider,
-                model: out.model,
-                inputTokens: out.usage.input_tokens,
-                outputTokens: out.usage.output_tokens,
-                tokens: out.usage.total_tokens,
-                call_id: out.call_id,
-              },
-            },
-          ]);
         } catch (err) {
           setErrors((e) => ({ ...e, [target]: errorMessage(err) }));
         } finally {
+          pendingStreams.current.delete(streamId);
+          if (activeStreams.current.get(target) === streamId) activeStreams.current.delete(target);
+          // A stream that ended without `done` (cancel, disconnect) keeps its partial text but stops pulsing.
+          if (started) {
+            patchTurns(target, (prev) => {
+              const last = prev[prev.length - 1];
+              return last?.streaming ? [...prev.slice(0, -1), { ...last, streaming: false }] : prev;
+            });
+          }
           setBusy((b) => {
             const { [target]: _, ...rest } = b;
             return rest;
@@ -218,6 +270,11 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     },
     [call, chats, patchTurns],
   );
+
+  const stop = React.useCallback((id: string) => {
+    const streamId = activeStreams.current.get(id);
+    if (streamId) void window.photon.cancelCompletion(streamId);
+  }, []);
 
   const isBusy = React.useCallback((id: string) => Boolean(busy[id]), [busy]);
   const errorOf = React.useCallback((id: string) => errors[id] || null, [errors]);
@@ -242,14 +299,18 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     const next = title.trim();
     setChats((prev) =>
       prev.map((c) =>
-        c.id !== id ? c : next ? { ...c, title: next, titleLocked: true } : { ...c, title: titleFor(c.turns), titleLocked: false },
+        c.id !== id
+          ? c
+          : next
+            ? { ...c, title: next, titleLocked: true }
+            : { ...c, title: titleFor(c.turns), titleLocked: false },
       ),
     );
   }, []);
 
   const value = React.useMemo(
-    () => ({ chats, get, send, isBusy, errorOf, setModel, clear, remove, rename }),
-    [chats, get, send, isBusy, errorOf, setModel, clear, remove, rename],
+    () => ({ chats, get, send, stop, isBusy, errorOf, setModel, clear, remove, rename }),
+    [chats, get, send, stop, isBusy, errorOf, setModel, clear, remove, rename],
   );
 
   return <ChatsContext.Provider value={value}>{children}</ChatsContext.Provider>;

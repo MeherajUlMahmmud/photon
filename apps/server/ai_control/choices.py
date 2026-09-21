@@ -21,6 +21,7 @@ class LlmCapabilityChoices(models.TextChoices):
     JSON_OUTPUT = "json_output", "JSON output"
     TOOL_CALLING = "tool_calling", "Tool calling"
     VISION = "vision", "Vision"
+    TRANSCRIPTION = "transcription", "Speech to text"
 
 
 class LlmCallStatusChoices(models.TextChoices):

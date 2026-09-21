@@ -46,6 +46,61 @@ export class ApiClient {
     }
   }
 
+  /**
+   * POSTs and reads the response as newline-delimited JSON, calling `onLine`
+   * per parsed object. Refreshes tokens on 401 like `request`. Aborts via
+   * `signal`; an abort resolves quietly rather than throwing.
+   */
+  async stream<T>(
+    path: string,
+    opts: RequestOptions & { onLine: (line: T) => void; signal?: AbortSignal },
+  ): Promise<void> {
+    let tokens = opts.tokens;
+    let res = await this.open(path, tokens?.access, opts.body, opts.signal);
+    if (res.status === 401 && tokens?.refresh) {
+      tokens = await this.refresh(tokens.refresh);
+      opts.onTokensRefreshed?.(tokens);
+      res = await this.open(path, tokens.access, opts.body, opts.signal);
+    }
+    if (!res.ok || !res.body) {
+      const envelope = (await res.json().catch(() => null)) as Envelope<unknown> | null;
+      throw new ApiError(envelope?.message ?? `Request failed (${res.status})`, res.status, envelope?.errors ?? null);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) opts.onLine(JSON.parse(line) as T);
+        }
+      }
+      const rest = buffer.trim();
+      if (rest) opts.onLine(JSON.parse(rest) as T);
+    } catch (err) {
+      if (opts.signal?.aborted) return;
+      throw err;
+    }
+  }
+
+  private async open(path: string, access: string | undefined, body: unknown, signal?: AbortSignal): Promise<Response> {
+    const headers: Record<string, string> = { Accept: "application/x-ndjson", "Content-Type": "application/json" };
+    if (access) headers.Authorization = `Bearer ${access}`;
+    try {
+      return await fetch(new URL(path, this.baseUrl), { method: "POST", headers, body: JSON.stringify(body), signal });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      throw new ApiError(`Cannot reach Photon server at ${this.baseUrl}`, 0);
+    }
+  }
+
   async refresh(refreshToken: string): Promise<Tokens> {
     return this.send<Tokens>("POST", "/api/auth/token/refresh/", undefined, { refresh: refreshToken });
   }

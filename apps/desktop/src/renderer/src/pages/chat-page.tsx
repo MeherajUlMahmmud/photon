@@ -1,13 +1,16 @@
 import * as React from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Broom, SidebarSimple } from "@phosphor-icons/react";
-import type { LlmProvider } from "../../../preload/api";
+import { SidebarSimple } from "@phosphor-icons/react";
+import type { DictationEngine, LlmProvider } from "../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
 import { useChats } from "@/hooks/use-chats";
 import { useStoredFlag } from "@/hooks/use-stored-flag";
+import { DICTATION_ENGINE_KEY, useDictation } from "@/hooks/use-dictation";
+import { useToast } from "@/hooks/use-toast";
 import { FolderExplorer } from "@/components/layout/folder-explorer";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { AssistantTurn, PendingTurn, UserTurn } from "@/components/chat/turn";
 import { Composer } from "@/components/chat/composer";
 import { ModelPicker } from "@/components/chat/model-picker";
@@ -88,6 +91,17 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   const [draft, setDraft] = React.useState("");
   const endRef = React.useRef<HTMLDivElement>(null);
 
+  // Dictation appends to whatever is already typed; it needs a provider that does speech to text.
+  const { toast } = useToast();
+  const engineSetting = useAsync(() => call((t) => window.photon.getSetting(t, DICTATION_ENGINE_KEY)), [user?.id]);
+  const engine: DictationEngine = engineSetting.data === "cloud" ? "cloud" : "local";
+  const canDictate = engine === "local" || ready.some((p) => p.capabilities.includes("transcription"));
+  const dictation = useDictation(
+    engine,
+    (text) => setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, "")} ${text}` : text)),
+    (message) => toast(message, "error"),
+  );
+
   const turns = chat?.turns ?? [];
   const initials = (user?.first_name?.[0] ?? user?.email[0] ?? "?").toUpperCase();
   const busy = chatId ? chats.isBusy(chatId) : false;
@@ -122,6 +136,20 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
+      {space && (
+        <HeaderActions>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleExplorer}
+            aria-pressed={explorerOpen}
+            aria-label={explorerOpen ? "Hide folder" : "Show folder"}
+          >
+            <SidebarSimple weight={explorerOpen ? "fill" : "bold"} className="rotate-180" />
+            {space.name}
+          </Button>
+        </HeaderActions>
+      )}
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto px-8 py-8 md:px-14">
           <div className="flex flex-col gap-7">
@@ -149,7 +177,7 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
                 <AssistantTurn key={i} turn={t} />
               ),
             )}
-            {busy && <PendingTurn from={current?.name} />}
+            {busy && !turns[turns.length - 1]?.streaming && <PendingTurn from={current?.name} />}
             {error && (
               <Alert variant="problem">
                 <AlertDescription>{error}</AlertDescription>
@@ -163,32 +191,10 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
           value={draft}
           onChange={setDraft}
           onSend={send}
+          onStop={busy && chatId ? () => chats.stop(chatId) : undefined}
           disabled={!ready.length || busy}
           placeholder={ready.length ? "Ask something" : "Add an API key first"}
-          actions={
-            ((chatId && turns.length > 0) || space) && (
-              <>
-                {chatId && turns.length > 0 && (
-                  <Button variant="ghost" size="sm" onClick={() => chats.clear(chatId)} disabled={busy}>
-                    <Broom weight="bold" />
-                    Clear conversation
-                  </Button>
-                )}
-                {space && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={toggleExplorer}
-                    aria-pressed={explorerOpen}
-                    aria-label={explorerOpen ? "Hide folder" : "Show folder"}
-                  >
-                    <SidebarSimple weight={explorerOpen ? "fill" : "bold"} className="rotate-180" />
-                    {space.name}
-                  </Button>
-                )}
-              </>
-            )
-          }
+          dictation={canDictate ? dictation : undefined}
           footer={
             <ModelPicker
               providers={ready}

@@ -125,7 +125,7 @@ export function InputField({
   const listId = suggestions?.length ? `${inputId}-suggestions` : undefined;
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("grid min-w-0 gap-2", className)}>
       <FieldLabel htmlFor={inputId} label={label} hideLabel={hideLabel} required={required} className={labelClassName} />
       <Input
         id={inputId}
@@ -189,7 +189,7 @@ export function PasswordField({
   const { inputId, descriptionId, errorId, describedBy } = useFieldIds(name, description, error);
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("grid min-w-0 gap-2", className)}>
       <FieldLabel htmlFor={inputId} label={label} hideLabel={hideLabel} required={required} className={labelClassName} />
       <div className="relative">
         <Input
@@ -250,7 +250,7 @@ export function TextareaField({
   const { inputId, descriptionId, errorId, describedBy } = useFieldIds(name, description, error);
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("grid min-w-0 gap-2", className)}>
       <FieldLabel htmlFor={inputId} label={label} hideLabel={hideLabel} required={required} className={labelClassName} />
       <Textarea
         id={inputId}
@@ -313,7 +313,7 @@ export function SelectField({
     ));
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("grid min-w-0 gap-2", className)}>
       <FieldLabel htmlFor={inputId} label={label} hideLabel={hideLabel} required={required} className={labelClassName} />
       <Select name={name} value={value ?? ""} onValueChange={onValueChange} disabled={disabled} required={required}>
         <SelectTrigger
@@ -368,7 +368,7 @@ export function SearchableSelectField({
   const groups = groupOptions(options);
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("grid min-w-0 gap-2", className)}>
       <FieldLabel htmlFor={inputId} label={label} hideLabel={hideLabel} required={required} className={labelClassName} />
       {/* `modal` so the list scrolls when the field sits inside a Sheet or Dialog, whose scroll lock would otherwise swallow wheel events. */}
       <Popover open={open} onOpenChange={setOpen} modal>
@@ -451,7 +451,7 @@ export function CheckboxField({
   );
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("grid min-w-0 gap-2", className)}>
       <div className="flex items-center gap-2">
         {labelPosition === "left" && labelNode}
         <Checkbox

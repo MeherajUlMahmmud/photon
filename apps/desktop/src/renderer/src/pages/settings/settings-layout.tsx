@@ -12,9 +12,9 @@ const SECTIONS = [
 
 export function SettingsLayout() {
   return (
-    <Page title="Settings" width="wide">
-      <div className="grid gap-12 md:grid-cols-[10rem_minmax(0,68ch)]">
-        <nav className="flex flex-col gap-1 md:sticky md:top-8 md:self-start" aria-label="Settings sections">
+    <Page title="Settings" width="wide" className="pt-8 pb-12 [&>header]:mb-6">
+      <div className="grid min-w-0 gap-8 md:grid-cols-[9rem_minmax(0,1fr)]">
+        <nav className="flex flex-col gap-0.5 md:sticky md:top-6 md:self-start" aria-label="Settings sections">
           {SECTIONS.map((s) => (
             <NavLink
               key={s.to}
@@ -22,7 +22,7 @@ export function SettingsLayout() {
               end={s.end}
               className={({ isActive }) =>
                 cn(
-                  "-ml-3 rounded-md px-3 py-1.5 text-body transition-colors",
+                  "-ml-3 rounded-md px-3 py-1 text-body transition-colors",
                   isActive ? "bg-sheet font-medium text-foreground" : "text-slate hover:text-foreground",
                 )
               }
@@ -31,7 +31,7 @@ export function SettingsLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-4xl">
           <Outlet />
         </div>
       </div>
@@ -41,10 +41,10 @@ export function SettingsLayout() {
 
 export function SettingsSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="pb-12 not-last:mb-12 not-last:border-b not-last:border-border">
+    <section className="pb-8 not-last:mb-8 not-last:border-b not-last:border-border">
       <h2 className="text-section">{title}</h2>
-      {description && <p className="mt-2 max-w-[52ch] text-body text-slate">{description}</p>}
-      <div className="mt-6">{children}</div>
+      {description && <p className="mt-1.5 max-w-[60ch] text-body text-slate">{description}</p>}
+      <div className="mt-4">{children}</div>
     </section>
   );
 }

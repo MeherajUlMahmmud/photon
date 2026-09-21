@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 from ai_control.llm.exceptions import AiUnavailableError
 from ai_control.llm.providers import (
@@ -191,8 +191,12 @@ class LLMOrchestrator:
                 )
                 failures.append(f"{row.provider} ({chosen_model}): {_short_error(e)}")
 
-        if skipped_no_key and len(skipped_no_key) == len(candidates):
-            raise AiUnavailableError(
+        raise cls._exhausted(user, task_key, candidate_names, skipped_no_key, failures)
+
+    @staticmethod
+    def _exhausted(user, task_key, candidate_names, skipped_no_key, failures) -> AiUnavailableError:
+        if skipped_no_key and len(skipped_no_key) == len(candidate_names):
+            return AiUnavailableError(
                 "No API key saved for " + ", ".join(skipped_no_key) + ". Add one in Settings."
             )
         logger.warning(
@@ -202,5 +206,121 @@ class LLMOrchestrator:
         if failures:
             # Tell the user what actually went wrong (retired model, bad key, rate limit)
             # instead of hiding it behind the generic message.
-            raise AiUnavailableError(AI_UNAVAILABLE_USER_MESSAGE + " " + " | ".join(failures))
-        raise AiUnavailableError(AI_UNAVAILABLE_USER_MESSAGE)
+            return AiUnavailableError(AI_UNAVAILABLE_USER_MESSAGE + " " + " | ".join(failures))
+        return AiUnavailableError(AI_UNAVAILABLE_USER_MESSAGE)
+
+    @classmethod
+    def stream_completion(
+        cls,
+        *,
+        user,
+        messages: List[Dict[str, Any]],
+        task_key: str = "chat",
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
+        trace_id: Optional[str] = None,
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Streaming twin of ``run_completion``. Yields events:
+
+        - ``{"type": "start", "provider", "model"}`` once a provider accepted the call
+        - ``{"type": "delta", "text"}`` per text chunk
+        - ``{"type": "done", "provider", "model", "call_id", "usage"}`` at the end
+        - ``{"type": "error", "message"}`` instead of ``done`` when nothing answered
+
+        Fallback to the next provider happens only before the first delta; a
+        provider that dies mid-answer ends the stream with an error.
+        """
+        cls._ensure_defaults()
+
+        preferred = (provider or "").strip().lower()
+        strict = bool(preferred and model)
+        candidates = cls.candidate_providers(user, preferred_provider=preferred, strict=strict)
+        prompt_text = cls._messages_text(messages)
+        candidate_names = [c.provider for c in candidates]
+        skipped_no_key: List[str] = []
+        failures: List[str] = []
+
+        for idx, row in enumerate(candidates):
+            client = cls._registry.get(str(row.api_style))
+            if client is None:
+                logger.warning("[LLMOrchestrator] Provider %s has unknown api_style %s; skipping", row.provider, row.api_style)
+                continue
+            api_key = SecretService.get_api_key(user, row.provider)
+            if not api_key:
+                skipped_no_key.append(row.provider)
+                continue
+
+            chosen_model = model if (model and row.provider == preferred) else row.default_model
+            config = ProviderConfig(provider=row.provider, api_key=api_key, api_url=row.api_url, model=chosen_model)
+            metadata = {
+                "task_key": task_key,
+                "selected_provider": preferred or None,
+                "attempt_index": idx,
+                "fallback_attempt": idx > 0,
+                "candidates": candidate_names,
+                "streamed": True,
+            }
+            rec = LlmCallRecorder.start()
+            started = False
+            parts: List[str] = []
+            result = None
+            try:
+                gen = client.complete_stream(messages, config, llm_config=llm_config)
+                while True:
+                    try:
+                        text = next(gen)
+                    except StopIteration as stop:
+                        result = stop.value
+                        break
+                    if not started:
+                        started = True
+                        yield {"type": "start", "provider": row.provider, "model": chosen_model}
+                    parts.append(text)
+                    yield {"type": "delta", "text": text}
+                if not result or not result.content:
+                    raise AiUnavailableError("Provider returned an empty response")
+                call = rec.success(
+                    user=user,
+                    provider=row.provider,
+                    model=chosen_model,
+                    task_key=task_key,
+                    prompt_text=prompt_text,
+                    response_text=result.content,
+                    trace_id=trace_id,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    total_tokens=result.total_tokens,
+                    cost_usd=row.compute_cost_usd(result.input_tokens, result.output_tokens),
+                    prompt_metadata=metadata,
+                )
+                yield {
+                    "type": "done",
+                    "provider": row.provider,
+                    "model": chosen_model,
+                    "call_id": str(call.id),
+                    "usage": result.usage,
+                }
+                return
+            except Exception as e:  # noqa: BLE001 - recorded, then fall through or surface
+                logger.warning(
+                    "[LLMOrchestrator] Provider %s failed (stream, started=%s) - user_id=%s, task_key=%s: %s",
+                    row.provider, started, user.id, task_key, e, exc_info=True,
+                )
+                rec.error(
+                    user=user,
+                    provider=row.provider,
+                    model=chosen_model,
+                    task_key=task_key,
+                    prompt_text=prompt_text,
+                    error=e,
+                    trace_id=trace_id,
+                    prompt_metadata={**metadata, "partial_chars": sum(len(p) for p in parts)},
+                )
+                if started:
+                    yield {"type": "error", "message": f"{row.provider} stopped answering: {_short_error(e)}"}
+                    return
+                failures.append(f"{row.provider} ({chosen_model}): {_short_error(e)}")
+
+        yield {"type": "error", "message": str(cls._exhausted(user, task_key, candidate_names, skipped_no_key, failures))}

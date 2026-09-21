@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { PhotonApi } from "./api";
+import type { CompletionEvent, LocalDictationProgress, PhotonApi } from "./api";
 
 const photonApi: PhotonApi = {
   getInfo: () => ipcRenderer.invoke("app:getInfo"),
@@ -32,6 +32,24 @@ const photonApi: PhotonApi = {
   listProviders: (tokens) => ipcRenderer.invoke("ai:listProviders", tokens),
   testProvider: (tokens, provider, apiKey) => ipcRenderer.invoke("ai:testProvider", tokens, provider, apiKey),
   createCompletion: (tokens, input) => ipcRenderer.invoke("ai:createCompletion", tokens, input),
+  streamCompletion: (tokens, streamId, input) => ipcRenderer.invoke("ai:streamCompletion", tokens, streamId, input),
+  cancelCompletion: (streamId) => ipcRenderer.invoke("ai:cancelCompletion", streamId),
+  onCompletionEvent: (listener) => {
+    const handler = (_e: Electron.IpcRendererEvent, streamId: string, event: CompletionEvent) =>
+      listener(streamId, event);
+    ipcRenderer.on("ai:completionEvent", handler);
+    return () => ipcRenderer.removeListener("ai:completionEvent", handler);
+  },
+  transcribe: (tokens, input) => ipcRenderer.invoke("ai:transcribe", tokens, input),
+  localDictationStatus: () => ipcRenderer.invoke("dictation:local:status"),
+  prepareLocalDictation: () => ipcRenderer.invoke("dictation:local:prepare"),
+  transcribeLocally: (pcm, language) => ipcRenderer.invoke("dictation:local:transcribe", pcm, language),
+  removeLocalDictationModel: () => ipcRenderer.invoke("dictation:local:remove"),
+  onLocalDictationProgress: (listener) => {
+    const handler = (_e: Electron.IpcRendererEvent, progress: LocalDictationProgress) => listener(progress);
+    ipcRenderer.on("dictation:local:progress", handler);
+    return () => ipcRenderer.removeListener("dictation:local:progress", handler);
+  },
   listLlmCalls: (tokens, query) => ipcRenderer.invoke("ai:listCalls", tokens, query ?? {}),
   getLlmCall: (tokens, id) => ipcRenderer.invoke("ai:getCall", tokens, id),
 };

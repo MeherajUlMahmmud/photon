@@ -83,6 +83,31 @@ export type CompletionOutput = {
   usage: Record<string, number>;
 };
 
+export type TranscriptionInput = {
+  /** Base64 audio, at most a couple of minutes. */
+  audio: string;
+  mime: string;
+  language?: string;
+};
+
+export type TranscriptionOutput = { text: string; provider: string; model: string; call_id: string };
+
+/** Where dictation audio is turned into text: on this machine, or through the user's cloud provider. */
+export type DictationEngine = "local" | "cloud";
+
+export type LocalDictationStatus = { downloaded: boolean; loaded: boolean };
+
+export type LocalDictationProgress =
+  | { stage: "downloading" | "loading"; file: string; percent: number }
+  | { stage: "ready" };
+
+/** One line of the streaming completion response. */
+export type CompletionEvent =
+  | { type: "start"; provider: string; model: string }
+  | { type: "delta"; text: string }
+  | { type: "done"; provider: string; model: string; call_id: string; usage: Record<string, number> }
+  | { type: "error"; message: string };
+
 export type LlmCall = {
   id: string;
   provider: string;
@@ -160,6 +185,23 @@ export type PhotonApi = {
   /** Checks a key by listing the provider's models. `apiKey` unset tests the stored key. */
   testProvider: (tokens: Tokens, provider: string, apiKey?: string) => Promise<WithTokens<ProviderTestResult>>;
   createCompletion: (tokens: Tokens, input: CompletionInput) => Promise<WithTokens<CompletionOutput>>;
+  /**
+   * Streams a completion. Events arrive through `onCompletionEvent` tagged
+   * with `streamId`; the promise settles when the stream ends or is cancelled.
+   */
+  streamCompletion: (tokens: Tokens, streamId: string, input: CompletionInput) => Promise<WithTokens<null>>;
+  cancelCompletion: (streamId: string) => Promise<void>;
+  onCompletionEvent: (listener: (streamId: string, event: CompletionEvent) => void) => () => void;
+  transcribe: (tokens: Tokens, input: TranscriptionInput) => Promise<WithTokens<TranscriptionOutput>>;
+  /** On-device dictation. No tokens: nothing leaves the machine. */
+  localDictationStatus: () => Promise<LocalDictationStatus>;
+  /** Downloads the speech model if needed and loads it; resolves when ready to transcribe. */
+  prepareLocalDictation: () => Promise<LocalDictationStatus>;
+  /** `pcm` is mono 16 kHz samples in [-1, 1]. */
+  transcribeLocally: (pcm: Float32Array, language?: string) => Promise<{ text: string }>;
+  removeLocalDictationModel: () => Promise<boolean>;
+  /** Download and load progress for the speech model. Returns an unsubscribe function. */
+  onLocalDictationProgress: (listener: (progress: LocalDictationProgress) => void) => () => void;
   listLlmCalls: (tokens: Tokens, query?: LlmCallQuery) => Promise<WithTokens<Page<LlmCall>>>;
   getLlmCall: (tokens: Tokens, id: string) => Promise<WithTokens<LlmCallDetails>>;
 };

@@ -115,12 +115,16 @@ export function AssistantTurn({ turn }: { turn: Turn }) {
     <div className="group/turn mr-auto flex max-w-[75%] items-start gap-3">
       <PhotonAvatar />
       <div className="min-w-0">
-        <div className="rounded-lg border border-input px-4 py-3">
+        <div className="rounded-lg border border-input px-4 py-3" aria-busy={turn.streaming || undefined}>
           <Markdown>{turn.content}</Markdown>
+          {turn.streaming && <span className="caret inline-block h-0 align-baseline" aria-hidden="true" />}
         </div>
-        <TurnMeta turn={turn} align="left">
-          {turn.meta && <UsageLine meta={turn.meta} />}
-        </TurnMeta>
+        {/* Time, usage and copy wait for the full reply. */}
+        {!turn.streaming && (
+          <TurnMeta turn={turn} align="left">
+            {turn.meta && <UsageLine meta={turn.meta} />}
+          </TurnMeta>
+        )}
       </div>
     </div>
   );

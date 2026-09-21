@@ -13,6 +13,7 @@
     "postinstall": "node ./scripts/ensure-electron.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "@phosphor-icons/react": "^2.1.10",
     "@photon/harness": "workspace:*",
     "@photon/shared": "workspace:*",

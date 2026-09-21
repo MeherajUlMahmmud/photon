@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppErrorBoundary } from "@/components/error-boundary";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { HeaderActionsProvider, HeaderActionsSlot } from "@/components/layout/header-actions";
 
 /** Signed-in shell: collapsible sidebar + page outlet. Redirects to /login otherwise. */
 export function AppShell() {
@@ -15,22 +16,25 @@ export function AppShell() {
   if (status === "authenticated") {
     return (
       <ChatsProvider>
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset className="h-svh max-h-svh">
-            <header className="flex h-11 shrink-0 items-center gap-2 px-3">
-              <SidebarTrigger />
-              <Separator orientation="vertical" className="mx-1 h-4" />
-              <Breadcrumb pathname={location.pathname} />
-            </header>
-            <div className="min-h-0 flex-1 overflow-auto">
-              {/* Keyed on pathname so a crashed page resets when the user navigates away. */}
-              <AppErrorBoundary key={location.pathname}>
-                <Outlet />
-              </AppErrorBoundary>
-            </div>
-          </SidebarInset>
-        </SidebarProvider>
+        <HeaderActionsProvider>
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset className="h-svh max-h-svh">
+              <header className="flex h-11 shrink-0 items-center gap-2 px-3">
+                <SidebarTrigger />
+                <Separator orientation="vertical" className="mx-1 h-4" />
+                <Breadcrumb pathname={location.pathname} />
+                <HeaderActionsSlot className="ml-auto flex items-center gap-1" />
+              </header>
+              <div className="min-h-0 flex-1 overflow-auto">
+                {/* Keyed on pathname so a crashed page resets when the user navigates away. */}
+                <AppErrorBoundary key={location.pathname}>
+                  <Outlet />
+                </AppErrorBoundary>
+              </div>
+            </SidebarInset>
+          </SidebarProvider>
+        </HeaderActionsProvider>
       </ChatsProvider>
     );
   }

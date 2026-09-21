@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CaretDown, CheckCircle, Copy, MagnifyingGlass, Warning, XCircle } from "@phosphor-icons/react";
+import { CaretDown, Check, CheckCircle, Copy, MagnifyingGlass, Warning, XCircle } from "@phosphor-icons/react";
 import type { LlmProvider, ProviderTestResult } from "../../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -43,8 +43,8 @@ function ModelChip({
           : "border-input bg-sheet text-foreground hover:border-black",
       )}
     >
+      {isDefault && <Check weight="bold" className="size-3 shrink-0 text-verdigris" aria-label="Default model" />}
       <span className="truncate">{id}</span>
-      {isDefault && <span className="size-1.5 shrink-0 rounded-full bg-verdigris" title="Default model" aria-label="default" />}
       {!missing && <Copy weight="bold" className="size-2.5 shrink-0 text-slate opacity-0 group-hover/chip:opacity-100" />}
     </button>
   );
@@ -213,7 +213,7 @@ function ProviderCard({ provider, onChanged }: { provider: LlmProvider; onChange
 
   return (
     <article className="rounded-lg border border-border bg-sheet">
-      <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
+      <header className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-lead">{provider.name}</h3>
@@ -246,7 +246,7 @@ function ProviderCard({ provider, onChanged }: { provider: LlmProvider; onChange
         </div>
       </header>
 
-      <div className="grid gap-4 px-5 py-5">
+      <div className="grid gap-3 px-4 py-4">
         <form
           className="grid gap-3"
           onSubmit={(e) => {
@@ -254,7 +254,7 @@ function ProviderCard({ provider, onChanged }: { provider: LlmProvider; onChange
             void save();
           }}
         >
-          <div className="flex items-start gap-2">
+          <div className="flex flex-wrap items-start gap-2">
             <PasswordField
               name={`${provider.provider}_api_key`}
               label={`${provider.name} API key`}
@@ -267,7 +267,7 @@ function ProviderCard({ provider, onChanged }: { provider: LlmProvider; onChange
               placeholder={provider.has_key ? "Paste a new key to replace the saved one" : "Paste the API key"}
               autoComplete="off"
               disabled={busy !== null}
-              className="flex-1"
+              className="min-w-56 flex-1"
               inputClassName="font-mono text-small"
             />
             <Button type="button" variant="outline" onClick={() => void test()} disabled={!canTest || busy !== null}>
@@ -299,7 +299,7 @@ function ProviderCard({ provider, onChanged }: { provider: LlmProvider; onChange
         {result?.ok && <LiveModels models={result.models} provider={provider} onCopy={copy} />}
 
         {provider.has_key && (
-          <div className="flex justify-end border-t border-border pt-4">
+          <div className="flex justify-end border-t border-border pt-3">
             <Button type="button" variant="quiet" size="sm" onClick={() => void remove()} disabled={busy !== null}>
               {busy === "remove" ? "Removing" : "Remove saved key"}
             </Button>
@@ -320,14 +320,14 @@ export function ProvidersSettingsPage() {
       description="One key per provider. The server encrypts each key and only decrypts it in memory for a call. This window never gets a key back. Testing lists the provider's models and spends no tokens."
     >
       {providers.loading ? (
-        <div className="grid gap-4">
-          <Skeleton className="h-44 w-full rounded-lg" />
-          <Skeleton className="h-44 w-full rounded-lg" />
+        <div className="grid gap-3">
+          <Skeleton className="h-40 w-full rounded-lg" />
+          <Skeleton className="h-40 w-full rounded-lg" />
         </div>
       ) : providers.status === "error" ? (
         <p className="text-small text-destructive">{providers.error}</p>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           {providers.data?.map((p) => (
             <ProviderCard key={p.provider} provider={p} onChanged={providers.reload} />
           ))}
