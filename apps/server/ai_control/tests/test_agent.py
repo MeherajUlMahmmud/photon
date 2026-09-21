@@ -153,6 +153,32 @@ class SessionCreateTests(AgentApiTestsBase):
         self.assertEqual(res.status_code, 400)
         self.assertIn('not waiting for tool results', res.json()['message'])
 
+    def test_template_noise_is_stripped_from_tool_names(self):
+        sid = self.create_session()
+        with mock.patch(STREAM_PATCH, new=_reply(calls=[('t1', 'cs<|channel|>analysis', {'query': 'x'})])):
+            res = self.step(sid, {'content': 'search'})
+        done = _events(res)[-1]
+        self.assertEqual(done['stop_reason'], 'tool_use')
+        self.assertEqual(done['pending_tool_calls'][0]['name'], 'cs')
+        self.assertEqual(AgentToolCallModel.objects.get(call_id='t1').name, 'cs')
+
+    def test_all_unknown_tools_wait_for_an_empty_results_step(self):
+        sid = self.create_session()
+        with mock.patch(STREAM_PATCH, new=_reply(calls=[('t1', 'nope', {})])):
+            res = self.step(sid, {'content': 'go'})
+        done = _events(res)[-1]
+        self.assertEqual(done['stop_reason'], 'tool_use')
+        self.assertEqual(done['pending_tool_calls'], [])
+        self.assertEqual(done['rejected_tool_calls'][0]['name'], 'nope')
+        self.assertIn("Unknown tool 'nope'", done['rejected_tool_calls'][0]['error'])
+        self.assertEqual(AgentSessionModel.objects.get(id=sid).status, 'awaiting_tools')
+
+        # The client continues with nothing to report; the model sees the rejection and answers.
+        with mock.patch(STREAM_PATCH, new=_reply('Sorry, no such tool.')):
+            res = self.step(sid, {'tool_results': []})
+        self.assertEqual(_events(res)[-1]['stop_reason'], 'end_turn')
+        self.assertEqual(AgentSessionModel.objects.get(id=sid).status, 'idle')
+
     def test_rejects_unknown_os(self):
         res = self.client.post('/api/ai/agent/session/create/', {'device': {'os': 'plan9'}}, format='json')
         self.assertEqual(res.status_code, 400)
@@ -230,16 +256,18 @@ class StepLoopTests(AgentApiTestsBase):
         self.assertIn('denied', results[0]['content'])
 
     @mock.patch(STREAM_PATCH, new=_reply(calls=[('t1', 'teleport', {})]))
-    def test_unknown_tool_is_answered_by_server_and_session_stays_idle(self):
+    def test_unknown_tool_is_answered_by_server(self):
         sid = self.create_session()
         events = _events(self.step(sid, {'content': 'go'}))
-        self.assertEqual(events[-1]['stop_reason'], 'end_turn')
         self.assertEqual(events[-1]['pending_tool_calls'], [])
         call = AgentToolCallModel.objects.get(call_id='t1')
         self.assertEqual(call.status, 'failed')
         self.assertIsNone(call.tool)
         self.assertIn('Unknown tool', call.error)
-        self.assertEqual(AgentSessionModel.objects.get(id=sid).status, 'idle')
+        # The rejection is part of the transcript the model sees next.
+        msgs = AgentSessionService.build_messages(AgentSessionModel.objects.get(id=sid))
+        self.assertEqual(msgs[-1]['role'], 'tool_results')
+        self.assertTrue(msgs[-1]['results'][0]['is_error'])
 
     @mock.patch(STREAM_PATCH, new=_reply('hi'))
     def test_non_stream_twin_returns_final_event(self):

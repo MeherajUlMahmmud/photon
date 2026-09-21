@@ -30,10 +30,13 @@ type StepEvent =
       stop_reason: string;
       step_count: number;
       pending_tool_calls: PendingCall[];
+      /** Calls the server refused itself (unknown tool name); already answered in the transcript. */
+      rejected_tool_calls: RejectedCall[];
     }
   | { type: "error"; message: string };
 
 type PendingCall = { call_id: string; name: string; input: Record<string, unknown>; risk: ToolRisk };
+type RejectedCall = { call_id: string; name: string; input: Record<string, unknown>; error: string };
 
 /** What goes back to the server for each pending call. `error: "denied"` is the server's cue for a refusal. */
 type ToolResult = { call_id: string; ok: boolean; output?: string; error?: string };
@@ -93,12 +96,18 @@ export class AgentTurn {
       const done = await this.step(body);
       if (!done) return; // error or cancel already emitted
 
-      if (done.stop_reason !== "tool_use" || done.pending_tool_calls.length === 0) {
-        return this.finish(done.stop_reason);
+      if (done.stop_reason !== "tool_use") return this.finish(done.stop_reason);
+
+      // Calls the server already refused still show up as failed cards, so the
+      // user sees what the model tried. Nothing to run for them.
+      for (const call of done.rejected_tool_calls ?? []) {
+        this.deps.emit({ type: "tool_call", call_id: call.call_id, name: call.name, input: call.input, risk: "destructive" });
+        this.deps.emit({ type: "tool_result", call_id: call.call_id, ok: false, output: "", error: call.error, duration_ms: 0, denied: false });
       }
 
       // Announce every call first so the UI shows the full plan of this step,
-      // then run them one by one in the order the model gave.
+      // then run them one by one in the order the model gave. An empty list is
+      // still posted: the session is waiting for it before the model may go on.
       for (const call of done.pending_tool_calls) {
         this.deps.emit({ type: "tool_call", call_id: call.call_id, name: call.name, input: call.input, risk: call.risk });
       }

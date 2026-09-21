@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any, Dict, Generator, Iterable, List, Optional
 
 from django.db import transaction
@@ -45,6 +46,11 @@ MAX_TOOL_OUTPUT_FOR_MODEL = 30_000
 
 #: Title is the first user message, shortened.
 TITLE_MAX_CHARS = 80
+
+#: Some open-weight models (gpt-oss via NIM, for one) leak their chat-template
+#: control tokens into the tool name: ``cs<|channel|>analysis``. Everything from
+#: the first ``<|`` on is template noise, and tool names are slugs anyway.
+TOOL_NAME_NOISE = re.compile(r"<\|.*$", re.DOTALL)
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are Photon, a coding agent working inside the user's local workspace. "
@@ -442,13 +448,15 @@ class AgentSessionService:
                 created_by=session.user,
             )
             pending: List[Dict[str, Any]] = []
+            rejected: List[Dict[str, Any]] = []
             for idx, call in enumerate(raw_calls):
-                tool = by_name.get(call.get("name") or "")
+                name = cls.clean_tool_name(call.get("name"))
+                tool = by_name.get(name)
                 risk = tool.risk if tool else LlmToolRiskChoices.DESTRUCTIVE
                 row = AgentToolCallModel(
                     session=session, message=msg, tool=tool,
                     call_id=str(call.get("id") or f"call_{msg.seq}_{idx}"),
-                    name=str(call.get("name") or ""),
+                    name=name,
                     input=call.get("input") or {},
                     risk=risk, seq_in_message=idx, created_by=session.user,
                 )
@@ -459,16 +467,16 @@ class AgentSessionService:
                 row.save()
                 if row.status == AgentToolCallStatusChoices.PENDING:
                     pending.append(cls._pending_payload(row))
+                else:
+                    rejected.append({"call_id": row.call_id, "name": row.name, "input": row.input, "error": row.error})
 
             session.step_count += 1
-            if pending:
+            if raw_calls:
+                # The model wants tools. With every call rejected there is nothing
+                # for the client to run, but the model still has to see the
+                # rejections: the session waits for an (empty) tool_results step.
                 session.status = AgentSessionStatusChoices.AWAITING_TOOLS
                 stop_reason = AgentStopReasonChoices.TOOL_USE.value
-            elif raw_calls:
-                # Every call was unknown: keep the session idle but tell the
-                # client the model tried tools, so it can immediately continue.
-                session.status = AgentSessionStatusChoices.IDLE
-                stop_reason = AgentStopReasonChoices.END_TURN.value
             else:
                 session.status = AgentSessionStatusChoices.IDLE
             session.running_since = None
@@ -482,8 +490,13 @@ class AgentSessionService:
             "stop_reason": stop_reason,
             "message_id": str(msg.id),
             "pending_tool_calls": pending,
+            "rejected_tool_calls": rejected,
             "step_count": session.step_count,
         }
+
+    @staticmethod
+    def clean_tool_name(name: Any) -> str:
+        return TOOL_NAME_NOISE.sub("", str(name or "")).strip()
 
     @staticmethod
     def _pending_payload(row: AgentToolCallModel) -> Dict[str, Any]:

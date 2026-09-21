@@ -83,10 +83,11 @@ class AgentToolResultSerializer(serializers.Serializer):
 class AgentStepRequestSerializer(serializers.Serializer):
     """
     Body of a step: exactly one of ``content`` (a new user message) or
-    ``tool_results`` (answers to every pending tool call).
+    ``tool_results`` (answers to every pending tool call). An empty list is
+    valid when the server rejected every call itself and nothing is pending.
     """
     content = serializers.CharField(required=False, allow_blank=False, trim_whitespace=False, max_length=200_000)
-    tool_results = AgentToolResultSerializer(many=True, required=False, min_length=1)
+    tool_results = AgentToolResultSerializer(many=True, required=False, allow_empty=True)
 
     class Meta:
         ref_name = 'AgentStepRequest'

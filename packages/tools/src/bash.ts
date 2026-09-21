@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { stat } from "node:fs/promises";
 import { z } from "zod";
 import type { ToolDefinition } from "@photon/harness";
 
@@ -21,6 +22,13 @@ export const bashTool: ToolDefinition<{ command: string; cwd?: string }> = {
     }
 
     const cwd = ctx.sandbox.resolve(input.cwd ?? ".");
+    // spawn reports a missing cwd as "spawn /bin/bash ENOENT", which reads as a
+    // missing shell. Check first so the model learns the real mistake (usually a
+    // "~/..." or absolute cwd where a workspace-relative one was expected).
+    const isDir = await stat(cwd).then((s) => s.isDirectory()).catch(() => false);
+    if (!isDir) {
+      throw new Error(`cwd does not exist: ${input.cwd}. Paths are relative to the workspace root; omit cwd to run at the root.`);
+    }
     ctx.audit.fileTouched({ path: cwd, op: "read" });
 
     return await runCommand(command, cwd, ctx.signal);

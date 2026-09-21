@@ -114,11 +114,9 @@ export function UserTurn({ turn, initials }: { turn: TextTurn; initials: string 
 
 export function AssistantTurn({ turn }: { turn: TextTurn }) {
   return (
-    <div className="group/turn mr-auto flex max-w-[75%] items-start gap-3">
-      {/* The mark rides along a long reply: pinned near the top of the viewport until the bubble scrolls past. */}
-      <div className="sticky top-2 self-start">
-        <PhotonAvatar />
-      </div>
+    <div className="group/turn mr-auto flex max-w-[75%] items-end gap-3">
+      {/* The mark sits at the foot of the reply, level with its time and usage line. */}
+      <PhotonAvatar />
       <div className="min-w-0">
         <div className="rounded-lg border border-input px-4 py-3" aria-busy={turn.streaming || undefined}>
           <Markdown>{turn.content}</Markdown>

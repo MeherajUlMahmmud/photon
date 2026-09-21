@@ -129,6 +129,18 @@ describe("AgentTurn", () => {
     assert.match(results[2]!.error, /no tool named 'nope'/);
   });
 
+  it("posts an empty results step when the server rejected every call", async () => {
+    const { turn, events, bodies } = run([
+      [done({ stop_reason: "tool_use", step_count: 1, pending_tool_calls: [], rejected_tool_calls: [{ call_id: "r1", name: "cs<|channel|>x", input: {}, error: "Unknown tool" }] })],
+      [{ type: "delta", text: "ok" }, done({ stop_reason: "end_turn", step_count: 2, pending_tool_calls: [] })],
+    ]);
+    await turn.run("go");
+    assert.deepEqual(bodies[1], { tool_results: [] });
+    const result = events.find((e) => e.type === "tool_result");
+    assert.equal(result?.type === "tool_result" && result.ok, false);
+    assert.equal(events.at(-1)?.type, "done");
+  });
+
   it("relays a server error and stops", async () => {
     const { turn, events, bodies } = run([[{ type: "error", message: "no provider answered" }]]);
     await turn.run("hi");

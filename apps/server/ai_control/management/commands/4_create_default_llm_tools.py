@@ -19,12 +19,16 @@ DEFAULT_TOOLS = [
         "label": "List directory",
         "description": (
             "List files and directories at a path inside the workspace. "
-            "Paths are relative to the workspace root. Use it to discover project layout before reading files."
+            "Paths are relative to the workspace root. Use it to discover project layout before reading files. "
+            "To find or count files by name (all images, every *.py), pass a glob and recursive=true; "
+            "that is instant and never reads file contents."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Directory to list, relative to the workspace root.", "default": "."},
+                "glob": {"type": "string", "description": "Keep only names matching this pattern, e.g. *.jpg (basename only, case-insensitive)."},
+                "recursive": {"type": "boolean", "default": False, "description": "Walk subfolders too; names come back relative to path. Capped at 2000 entries."},
             },
             "additionalProperties": False,
         },
@@ -35,9 +39,10 @@ DEFAULT_TOOLS = [
         "name": "cs",
         "label": "Code search",
         "description": (
-            "Substring search across files inside the workspace (not a regex). "
+            "Substring search over the contents of text files inside the workspace (not a regex, not file names). "
             "Returns up to 100 matches as path, line number and the matching line. "
-            "Skips node_modules, .git, dist, out and .photon."
+            "Skips binaries, files over 512 KiB and dependency folders (node_modules, .git, dist, .venv). "
+            "To find files by name, use ls with a glob instead."
         ),
         "input_schema": {
             "type": "object",

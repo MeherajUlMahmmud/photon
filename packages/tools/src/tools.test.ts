@@ -40,11 +40,39 @@ describe("tools", () => {
     assert.ok(result.entries.some((e) => e.name === "hello.txt"));
   });
 
-  it("cs finds content", async () => {
+  it("cs finds content and reports relative paths", async () => {
     const result = (await csTool.execute({ query: "photon" }, ctxFor(root))) as {
       matchCount: number;
+      matches: Array<{ path: string; line: number }>;
     };
     assert.equal(result.matchCount, 1);
+    assert.deepEqual(result.matches[0], { path: "hello.txt", line: 1, text: "hello photon" });
+  });
+
+  it("cs skips binaries and oversized files, and treats an empty path as the root", async () => {
+    fs.writeFileSync(path.join(root, "blob.bin"), Buffer.from([0x70, 0x68, 0x6f, 0x74, 0x6f, 0x6e, 0x00, 0x01]));
+    fs.writeFileSync(path.join(root, "huge.txt"), "photon\n".repeat(120_000));
+    const result = (await csTool.execute({ query: "photon", path: "" }, ctxFor(root))) as {
+      matchCount: number;
+      filesSkipped: number;
+    };
+    assert.equal(result.matchCount, 1);
+    assert.equal(result.filesSkipped, 2);
+  });
+
+  it("ls filters by glob and walks recursively with relative names", async () => {
+    fs.mkdirSync(path.join(root, "pics/inner"), { recursive: true });
+    fs.writeFileSync(path.join(root, "pics/a.jpg"), "");
+    fs.writeFileSync(path.join(root, "pics/inner/b.JPG"), "");
+    fs.writeFileSync(path.join(root, "pics/notes.md"), "");
+    const flat = (await lsTool.execute({ path: "pics", glob: "*.jpg" }, ctxFor(root))) as { entries: Array<{ name: string }> };
+    assert.deepEqual(flat.entries.map((e) => e.name), ["a.jpg"]);
+    const deep = (await lsTool.execute({ path: "pics", glob: "*.jpg", recursive: true }, ctxFor(root))) as {
+      count: number;
+      entries: Array<{ name: string }>;
+    };
+    assert.deepEqual(deep.entries.map((e) => e.name), ["a.jpg", "inner/b.JPG"]);
+    assert.equal(deep.count, 2);
   });
 
   it("read_file numbers lines and slices", async () => {
