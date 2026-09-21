@@ -212,12 +212,317 @@
     }
   }
 
+  /*
+   * The photon in flight while a reply is pending (thinking-photon.tsx).
+   * The lane is 152x40 CSS px so the SVG wave and the CSS offset-path share
+   * one coordinate space; each trail copy runs the same path a little behind.
+   */
+  .photon-lane {
+    position: relative;
+    width: 152px;
+    height: 40px;
+    flex-shrink: 0;
+    color: var(--color-foreground);
+  }
+  .photon-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .photon-wave {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1;
+    stroke-linecap: round;
+    opacity: 0.18;
+    stroke-dasharray: 260;
+    stroke-dashoffset: 260;
+    animation: photon-draw 2.4s linear infinite;
+  }
+  .photon-mark {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: currentColor;
+    offset-path: path("M 4 20 C 20 0, 36 0, 52 20 S 84 40, 100 20 S 132 0, 148 20");
+    offset-rotate: 0deg;
+    offset-distance: 0%;
+    animation: photon-fly 2.4s linear infinite;
+  }
+  .photon-live {
+    filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 10px color-mix(in oklab, currentColor 45%, transparent));
+  }
+  .photon-trail {
+    width: 8px;
+    height: 8px;
+    border-radius: 1.5px;
+  }
+  .photon-trail-1 {
+    opacity: 0.45;
+    animation-delay: -0.09s;
+  }
+  .photon-trail-2 {
+    opacity: 0.25;
+    animation-delay: -0.18s;
+  }
+  .photon-trail-3 {
+    opacity: 0.12;
+    animation-delay: -0.27s;
+  }
+  /* The mark keeps its diamond orientation, spins once per pass, and fades in and out at the lane's ends. */
+  @keyframes photon-fly {
+    0% {
+      offset-distance: 0%;
+      opacity: 0;
+      transform: rotate(45deg) scale(0.6);
+    }
+    8% {
+      opacity: 1;
+      transform: rotate(45deg) scale(1);
+    }
+    92% {
+      opacity: 1;
+      transform: rotate(405deg) scale(1);
+    }
+    100% {
+      offset-distance: 100%;
+      opacity: 0;
+      transform: rotate(405deg) scale(0.6);
+    }
+  }
+  .photon-trail {
+    animation-name: photon-trail-fly;
+  }
+  @keyframes photon-trail-fly {
+    0% {
+      offset-distance: 0%;
+      transform: rotate(45deg);
+    }
+    100% {
+      offset-distance: 100%;
+      transform: rotate(405deg);
+    }
+  }
+  @keyframes photon-draw {
+    0% {
+      stroke-dashoffset: 260;
+    }
+    70%,
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* The worried robot that paces while a reply is pending (thinking-robot.tsx). */
+  .robot-lane {
+    position: relative;
+    width: 7.5rem;
+    height: 3rem;
+    flex-shrink: 0;
+    color: var(--color-foreground);
+  }
+  .robot-walk {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 3rem;
+    height: 3rem;
+    animation: robot-pace 4.8s ease-in-out infinite;
+  }
+  .robot-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .robot-fill {
+    fill: currentColor;
+  }
+  .robot-stroke {
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .robot-panel {
+    fill: var(--color-sheet);
+    opacity: 0.55;
+  }
+  .robot-eye {
+    fill: var(--color-sheet);
+    animation: robot-glance 3.2s ease-in-out infinite;
+  }
+  .robot-brow,
+  .robot-mouth {
+    fill: none;
+    stroke: var(--color-sheet);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .robot-antenna {
+    transform-origin: 32px 12px;
+    animation: robot-antenna 0.9s ease-in-out infinite;
+  }
+  .robot-body {
+    transform-origin: 32px 59px;
+    animation: robot-bob 0.6s ease-in-out infinite;
+  }
+  .robot-head {
+    transform-origin: 32px 30px;
+    animation: robot-fret 2.4s ease-in-out infinite;
+  }
+  .robot-arm-left {
+    transform-origin: 19px 34px;
+    animation: robot-wring 1.2s ease-in-out infinite;
+  }
+  .robot-arm-right {
+    transform-origin: 45px 34px;
+    animation: robot-wring 1.2s ease-in-out infinite reverse;
+  }
+  .robot-leg-left {
+    transform-origin: 27px 48px;
+    animation: robot-step 0.6s ease-in-out infinite;
+  }
+  .robot-leg-right {
+    transform-origin: 37px 48px;
+    animation: robot-step 0.6s ease-in-out infinite reverse;
+  }
+  .robot-sweat {
+    fill: currentColor;
+    opacity: 0;
+    transform-origin: 47px 14px;
+    animation: robot-sweat 2.4s ease-in infinite;
+  }
+
+  /* Pace right, stop and fret, turn, pace back. The flip lands on the pauses so it is never mid-stride. */
+  @keyframes robot-pace {
+    0% {
+      transform: translateX(0) scaleX(1);
+    }
+    40% {
+      transform: translateX(4.5rem) scaleX(1);
+    }
+    50% {
+      transform: translateX(4.5rem) scaleX(-1);
+    }
+    90% {
+      transform: translateX(0) scaleX(-1);
+    }
+    100% {
+      transform: translateX(0) scaleX(1);
+    }
+  }
+  @keyframes robot-bob {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-1.5px);
+    }
+  }
+  @keyframes robot-step {
+    0%,
+    100% {
+      transform: rotate(-18deg);
+    }
+    50% {
+      transform: rotate(18deg);
+    }
+  }
+  @keyframes robot-fret {
+    0%,
+    100% {
+      transform: rotate(-6deg);
+    }
+    50% {
+      transform: rotate(6deg);
+    }
+  }
+  @keyframes robot-wring {
+    0%,
+    100% {
+      transform: rotate(-12deg) translateX(0);
+    }
+    50% {
+      transform: rotate(14deg) translateX(2px);
+    }
+  }
+  @keyframes robot-glance {
+    0%,
+    45%,
+    100% {
+      transform: translate(0, 0);
+    }
+    55%,
+    90% {
+      transform: translate(-1px, 1px);
+    }
+  }
+  @keyframes robot-antenna {
+    0%,
+    100% {
+      transform: rotate(-10deg);
+    }
+    50% {
+      transform: rotate(10deg);
+    }
+  }
+  @keyframes robot-sweat {
+    0%,
+    55% {
+      opacity: 0;
+      transform: translateY(0) scale(0.4);
+    }
+    65% {
+      opacity: 0.9;
+      transform: translateY(0) scale(1);
+    }
+    95% {
+      opacity: 0;
+      transform: translateY(10px) scale(1);
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .caret::after {
       animation: none;
     }
     .type-in {
       animation: none;
+    }
+    .robot-walk,
+    .robot-body,
+    .robot-head,
+    .robot-arm-left,
+    .robot-arm-right,
+    .robot-leg-left,
+    .robot-leg-right,
+    .robot-sweat,
+    .robot-eye,
+    .robot-antenna {
+      animation: none;
+    }
+    .photon-mark,
+    .photon-wave {
+      animation: none;
+    }
+    .photon-wave {
+      stroke-dashoffset: 0;
+    }
+    .photon-mark {
+      offset-distance: 50%;
+      opacity: 1;
+      transform: rotate(45deg);
+    }
+    .photon-trail {
+      display: none;
     }
   }
 }

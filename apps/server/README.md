@@ -73,7 +73,8 @@ Every response is the envelope `{status, status_code, message, data?, errors?, m
 | POST | `/api/ai/completion/create/` | `{messages:[{role,content}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer |
 | POST | `/api/ai/completion/stream/` | same body | NDJSON events `start`, `delta`, `done` / `error` |
 | GET | `/api/ai/tool/list/` | | active tools the agent may call: `name`, `description`, `input_schema`, `risk` |
-| POST | `/api/ai/agent/session/create/` | `{workspace_id?, provider?, model?, task_key?, device?}` | `201` with the session; `device` is `{os, os_version?, arch?, shell?, locale?, app_version?}` |
+| POST | `/api/ai/agent/session/create/` | `{workspace_id?, workspace_path?, provider?, model?, task_key?, device?}` | `201` with the session; `device` is `{os, os_version?, arch?, shell?, locale?, app_version?}` |
+| POST | `/api/ai/agent/session/<uuid>/update/` | `{provider?, model?}` | re-pins the model for the next steps; transcript unchanged |
 | POST | `/api/ai/agent/session/<uuid>/step/stream/` | `{content}` or `{tool_results:[{call_id, ok, output?, error?}]}` | NDJSON events; see *Agent loop* |
 | POST | `/api/ai/agent/session/<uuid>/step/create/` | same body | final `done` event as JSON plus `content` |
 | POST | `/api/ai/agent/session/<uuid>/cancel/` | | drops pending tool calls, session back to `idle` |
@@ -104,7 +105,7 @@ The server is the agent's brain; the desktop is its hands. Tools are rows in `Ll
 2. The client runs every pending call locally (asking the user first for `write`/`shell`/`destructive` risk) and posts `POST .../step/stream/ {tool_results: [...]}` — one entry per pending `call_id`, `ok: false` with `error: "denied"` when the user refused. Partial, unknown or duplicate ids are a `400`.
 3. Repeat until `end_turn`.
 
-The desktop sends `device` when it creates the session (`os` is Node's `process.platform`: `darwin`, `linux` or `win32`). It is stored on the session and turned into an *Environment* paragraph of the system prompt — OS, version, arch, shell and locale plus per-OS guidance (BSD vs GNU userland, PowerShell vs POSIX, path separators) — so commands, paths and instructions come back shaped for that machine. Without it the prompt has no environment section and the model falls back to POSIX assumptions.
+The desktop sends `workspace_path` (the folder it is working in, which becomes the root in the prompt and must match the client's sandbox root) and `device` when it creates the session (`os` is Node's `process.platform`: `darwin`, `linux` or `win32`). It is stored on the session and turned into an *Environment* paragraph of the system prompt — OS, version, arch, shell and locale plus per-OS guidance (BSD vs GNU userland, PowerShell vs POSIX, path separators) — so commands, paths and instructions come back shaped for that machine. Without it the prompt has no environment section and the model falls back to POSIX assumptions.
 
 Status machine: `idle → running → awaiting_tools | idle | error`. A step on a `running` session is `409` unless it has been running for over 10 minutes (abandoned worker), and a new `content` while `awaiting_tools` cancels the pending calls first so the transcript stays valid. Each step is one model call recorded in `LlmApiCallModel` (`trace_id` = session id); assistant turns and tool calls are stored in `AgentMessageModel` / `AgentToolCallModel`, and the transcript is rebuilt from them on every step (tool output clipped to 30k chars for the model). Providers without the `tool_calling` capability are skipped when tools are attached.
 

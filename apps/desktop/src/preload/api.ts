@@ -96,6 +96,8 @@ export type DeviceInfo = {
 
 export type AgentSessionCreateInput = {
   workspace_id?: string | null;
+  /** Folder the chat works in; becomes the prompt's root and the tool sandbox root. */
+  workspace_path?: string;
   provider?: string;
   model?: string;
   task_key?: string;
@@ -105,6 +107,7 @@ export type AgentSession = {
   id: string;
   title: string;
   workspace: string | null;
+  workspace_path: string;
   provider: string;
   model: string;
   task_key: string;
@@ -116,6 +119,45 @@ export type AgentSession = {
   created_at: string;
   updated_at: string;
 };
+
+/** How dangerous a tool call is; anything above `read` needs the user's approval. */
+export type ToolRisk = "read" | "write" | "shell" | "destructive";
+
+/** The user's answer to an approval request. `allow_session` stops asking for this risk level in this session. */
+export type ApprovalDecision = "allow" | "deny" | "allow_session";
+
+/**
+ * One line of an agent turn, as main relays it to the renderer. A turn is
+ * several model *steps*; between steps main runs the tools the model asked for.
+ *
+ *   start → delta* → (tool_call → [approval_needed] → tool_running → tool_result)* → step_done
+ *   ...repeat per step... → done | error
+ */
+export type AgentEvent =
+  /** A model step began; `step` counts from 1 within this session. */
+  | { type: "start"; step: number; provider: string; model: string }
+  /** A chunk of assistant text. */
+  | { type: "delta"; text: string }
+  /** The model asked for a tool. Emitted for every call before any of them runs. */
+  | { type: "tool_call"; call_id: string; name: string; input: Record<string, unknown>; risk: ToolRisk }
+  /** Main is waiting for `approveToolCall` before running this call. */
+  | { type: "approval_needed"; call_id: string }
+  | { type: "tool_running"; call_id: string }
+  /** What the tool returned, exactly what is sent back to the model (before the server clips it). */
+  | { type: "tool_result"; call_id: string; ok: boolean; output: string; error: string; duration_ms: number; denied: boolean }
+  /** The model step finished; `stop_reason` says whether tools follow or the turn is over. */
+  | {
+      type: "step_done";
+      step: number;
+      stop_reason: "end_turn" | "tool_use" | "max_steps" | string;
+      call_id: string | null;
+      usage: Record<string, number>;
+      provider: string;
+      model: string;
+    }
+  /** The whole turn is over: the model answered without more tools, hit max_steps, or was cancelled. */
+  | { type: "done"; stop_reason: string; steps: number }
+  | { type: "error"; message: string };
 
 export type TranscriptionInput = {
   /** Base64 audio, at most a couple of minutes. */
@@ -199,6 +241,8 @@ export type PhotonApi = {
   deleteApiKey: (tokens: Tokens, provider: string) => Promise<WithTokens<boolean>>;
   listWorkspaces: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo[]>>;
   openWorkspace: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo | null>>;
+  /** Save-as dialog for text the renderer produced (chat export). Resolves to the path, or null if cancelled. */
+  saveTextFile: (input: { defaultName: string; content: string }) => Promise<string | null>;
   getActiveWorkspace: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo | null>>;
   /** Lists one directory inside a workspace. `relPath` is relative to the workspace root; "" is the root. */
   listWorkspaceDir: (tokens: Tokens, workspaceId: string, relPath: string) => Promise<WithTokens<DirEntry[]>>;
@@ -221,6 +265,29 @@ export type PhotonApi = {
   createCompletion: (tokens: Tokens, input: CompletionInput) => Promise<WithTokens<CompletionOutput>>;
   /** Starts an agent session. Main attaches this machine's `DeviceInfo` so the server shapes the prompt for it. */
   createAgentSession: (tokens: Tokens, input?: AgentSessionCreateInput) => Promise<WithTokens<AgentSession>>;
+  /** Re-pins the provider/model an existing session uses from its next step. */
+  updateAgentSession: (
+    tokens: Tokens,
+    sessionId: string,
+    input: { provider: string; model: string },
+  ) => Promise<WithTokens<AgentSession>>;
+  getAgentSession: (tokens: Tokens, sessionId: string) => Promise<WithTokens<AgentSession>>;
+  /**
+   * Sends one user message and drives the whole tool loop in main: model step,
+   * run tools (asking through `approval_needed`), post results, repeat. Events
+   * arrive through `onAgentEvent` tagged with `turnId`; the promise settles when
+   * the turn ends or is cancelled.
+   */
+  runAgentTurn: (
+    tokens: Tokens,
+    turnId: string,
+    input: { sessionId: string; workspaceId: string; content: string },
+  ) => Promise<WithTokens<null>>;
+  /** Answers an `approval_needed` event. */
+  approveToolCall: (turnId: string, callId: string, decision: ApprovalDecision) => Promise<void>;
+  /** Aborts the model stream, kills running tools and tells the server to drop pending calls. */
+  cancelAgentTurn: (tokens: Tokens, turnId: string) => Promise<WithTokens<null>>;
+  onAgentEvent: (listener: (turnId: string, event: AgentEvent) => void) => () => void;
   /** What `createAgentSession` reports about this machine; for showing in settings. */
   deviceInfo: () => Promise<DeviceInfo>;
 

@@ -12,6 +12,7 @@ from ai_control.llm.orchestrator import LLMOrchestrator
 from ai_control.serializers.completion import CompletionRequestSerializer, CompletionResponseSerializer
 from common.api_response import ApiResponse
 from common.rate_limiters import api_rate_limit
+from common.renderers import NdjsonStreamViewMixin
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class CreateCompletionAPIView(APIView):
         )
 
 
-class CreateCompletionStreamAPIView(APIView):
+class CreateCompletionStreamAPIView(NdjsonStreamViewMixin, APIView):
     """
     Same request as ``CreateCompletionAPIView``, answered as newline-delimited
     JSON events (``start``, ``delta``, ``done`` / ``error``) so the desktop

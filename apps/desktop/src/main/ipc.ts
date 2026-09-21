@@ -1,10 +1,11 @@
 import type { BrowserWindow, Dialog } from "electron";
 import { ipcMain, shell } from "electron";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type {
   AgentSession,
   AgentSessionCreateInput,
+  ApprovalDecision,
   AuthResult,
   AuthSession,
   AuthUser,
@@ -28,6 +29,7 @@ import type {
   WorkspaceInfo,
 } from "../preload/api.js";
 import { ApiError, type ApiClient } from "./api-client.js";
+import { AgentTurn } from "./agent.js";
 import { deviceInfo } from "./device-info.js";
 
 export interface IpcDeps {
@@ -191,6 +193,18 @@ export function registerIpc(deps: IpcDeps): void {
     }),
   );
 
+  /** Asks where to save a text file the renderer built (chat export). Returns the path, or null on cancel. */
+  ipcMain.handle("file:saveText", async (_e, input: { defaultName: string; content: string }) => {
+    const win = getWindow();
+    const result = await dialog.showSaveDialog(win ?? undefined!, {
+      defaultPath: input.defaultName,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    await writeFile(result.filePath, input.content, "utf8");
+    return result.filePath;
+  });
+
   ipcMain.handle("workspace:open", (_e, tokens: Tokens) =>
     withTokens(tokens, async (opts) => {
       const win = getWindow();
@@ -331,13 +345,90 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle("device:info", () => deviceInfo());
 
+  // ---------------------------------------------------------------- agent
+
+  /** Root of a workspace as the server knows it; the renderer only ever names the id. */
+  async function workspaceRoot(
+    opts: { tokens: Tokens; onTokensRefreshed: (t: Tokens) => void },
+    workspaceId: string,
+  ): Promise<string> {
+    const cached = workspaceRoots.get(workspaceId);
+    if (cached) return cached;
+    await insideWorkspace(opts, workspaceId, ".");
+    return workspaceRoots.get(workspaceId)!;
+  }
+
   ipcMain.handle("ai:createAgentSession", (_e, tokens: Tokens, input: AgentSessionCreateInput) =>
-    withTokens(tokens, (opts) =>
-      api.request<AgentSession>("POST", "/api/ai/agent/session/create/", {
+    withTokens(tokens, async (opts) => {
+      // A workspace chat also tells the server the folder it runs in, so the
+      // prompt's root and the tool sandbox root are the same path.
+      const workspace_path = input.workspace_id ? await workspaceRoot(opts, input.workspace_id) : undefined;
+      return api.request<AgentSession>("POST", "/api/ai/agent/session/create/", {
         ...opts,
-        body: { ...input, device: deviceInfo() },
-      }),
+        body: { ...input, workspace_path, device: deviceInfo() },
+      });
+    }),
+  );
+
+  ipcMain.handle(
+    "ai:updateAgentSession",
+    (_e, tokens: Tokens, sessionId: string, input: { provider: string; model: string }) =>
+      withTokens(tokens, (opts) =>
+        api.request<AgentSession>("POST", `/api/ai/agent/session/${encodeURIComponent(sessionId)}/update/`, {
+          ...opts,
+          body: input,
+        }),
+      ),
+  );
+
+  ipcMain.handle("ai:getAgentSession", (_e, tokens: Tokens, sessionId: string) =>
+    withTokens(tokens, (opts) =>
+      api.request<AgentSession>("GET", `/api/ai/agent/session/${encodeURIComponent(sessionId)}/details/`, opts),
     ),
+  );
+
+  /** Turns in flight, by the renderer's turn id, so approvals and cancels find them. */
+  const turns = new Map<string, { turn: AgentTurn; sessionId: string }>();
+
+  ipcMain.handle(
+    "ai:runAgentTurn",
+    (e, tokens: Tokens, turnId: string, input: { sessionId: string; workspaceId: string; content: string }) =>
+      withTokens(tokens, async (opts) => {
+        const root = await workspaceRoot(opts, input.workspaceId);
+        const turn = new AgentTurn({
+          api,
+          opts,
+          sessionId: input.sessionId,
+          workspaceRoot: root,
+          emit: (event) => {
+            if (!e.sender.isDestroyed()) e.sender.send("ai:agentEvent", turnId, event);
+          },
+        });
+        turns.set(turnId, { turn, sessionId: input.sessionId });
+        try {
+          await turn.run(input.content);
+        } finally {
+          turns.delete(turnId);
+        }
+        return null;
+      }),
+  );
+
+  ipcMain.handle("ai:approveToolCall", (_e, turnId: string, callId: string, decision: ApprovalDecision) => {
+    turns.get(turnId)?.turn.approve(callId, decision);
+  });
+
+  ipcMain.handle("ai:cancelAgentTurn", (_e, tokens: Tokens, turnId: string) =>
+    withTokens(tokens, async (opts) => {
+      const entry = turns.get(turnId);
+      if (!entry) return null;
+      entry.turn.cancel();
+      // The server still holds the step's pending calls; drop them so the next message is accepted.
+      await api
+        .request("POST", `/api/ai/agent/session/${encodeURIComponent(entry.sessionId)}/cancel/`, opts)
+        .catch(() => undefined);
+      return null;
+    }),
   );
 
   const streams = new Map<string, AbortController>();

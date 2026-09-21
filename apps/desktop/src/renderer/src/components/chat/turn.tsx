@@ -1,9 +1,11 @@
 import * as React from "react";
 import { Check, Copy } from "@phosphor-icons/react";
 
-import type { Turn } from "@/hooks/use-chats";
+import type { TextTurn } from "@/hooks/use-chats";
 import { useToast } from "@/hooks/use-toast";
 import { Markdown } from "@/components/chat/markdown";
+import { ThinkingPhoton } from "@/components/chat/thinking-photon";
+// import { ThinkingRobot } from "@/components/chat/thinking-robot";
 
 function Avatar({ children }: { children: React.ReactNode }) {
   return (
@@ -14,7 +16,7 @@ function Avatar({ children }: { children: React.ReactNode }) {
 }
 
 /** Photon's mark, used as the assistant avatar. */
-function PhotonAvatar() {
+export function PhotonAvatar() {
   return (
     <Avatar>
       <span className="size-2.5 rotate-45 rounded-[2px] bg-black" aria-hidden="true" />
@@ -72,7 +74,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** Model and token counts for a reply: "in" and "out" separately when the provider reports them. */
-function UsageLine({ meta }: { meta: NonNullable<Turn["meta"]> }) {
+function UsageLine({ meta }: { meta: NonNullable<TextTurn["meta"]> }) {
   const parts: string[] = [];
   if (meta.inputTokens != null) parts.push(`${meta.inputTokens} in`);
   if (meta.outputTokens != null) parts.push(`${meta.outputTokens} out`);
@@ -86,7 +88,7 @@ function UsageLine({ meta }: { meta: NonNullable<Turn["meta"]> }) {
 }
 
 /** Time and copy action under a message; aligned to the bubble's side. */
-function TurnMeta({ turn, align, children }: { turn: Turn; align: "left" | "right"; children?: React.ReactNode }) {
+function TurnMeta({ turn, align, children }: { turn: TextTurn; align: "left" | "right"; children?: React.ReactNode }) {
   return (
     <div
       className={`mt-1 flex items-center gap-2 font-mono text-micro text-slate ${align === "right" ? "flex-row-reverse" : ""}`}
@@ -98,7 +100,7 @@ function TurnMeta({ turn, align, children }: { turn: Turn; align: "left" | "righ
   );
 }
 
-export function UserTurn({ turn, initials }: { turn: Turn; initials: string }) {
+export function UserTurn({ turn, initials }: { turn: TextTurn; initials: string }) {
   return (
     <div className="group/turn ml-auto flex max-w-[75%] items-start gap-3">
       <div className="min-w-0">
@@ -110,10 +112,13 @@ export function UserTurn({ turn, initials }: { turn: Turn; initials: string }) {
   );
 }
 
-export function AssistantTurn({ turn }: { turn: Turn }) {
+export function AssistantTurn({ turn }: { turn: TextTurn }) {
   return (
     <div className="group/turn mr-auto flex max-w-[75%] items-start gap-3">
-      <PhotonAvatar />
+      {/* The mark rides along a long reply: pinned near the top of the viewport until the bubble scrolls past. */}
+      <div className="sticky top-2 self-start">
+        <PhotonAvatar />
+      </div>
       <div className="min-w-0">
         <div className="rounded-lg border border-input px-4 py-3" aria-busy={turn.streaming || undefined}>
           <Markdown>{turn.content}</Markdown>
@@ -122,6 +127,7 @@ export function AssistantTurn({ turn }: { turn: Turn }) {
         {/* Time, usage and copy wait for the full reply. */}
         {!turn.streaming && (
           <TurnMeta turn={turn} align="left">
+            {turn.step != null && <span className="text-micro">step {turn.step}</span>}
             {turn.meta && <UsageLine meta={turn.meta} />}
           </TurnMeta>
         )}
@@ -130,12 +136,18 @@ export function AssistantTurn({ turn }: { turn: Turn }) {
   );
 }
 
-/** Placeholder row while a reply is in flight. */
+/**
+ * Placeholder row while a reply is in flight: a photon travelling along a
+ * light wave, no text. The provider name is only for screen readers. Static
+ * under reduced motion. (The pacing robot is kept in thinking-robot.tsx; swap
+ * the component to bring it back.)
+ */
 export function PendingTurn({ from }: { from?: string }) {
   return (
-    <div className="mr-auto flex items-start gap-3">
-      <PhotonAvatar />
-      <p className="py-2 text-slate">Waiting for {from}</p>
+    <div className="mr-auto flex items-center" role="status" aria-live="polite">
+      <ThinkingPhoton />
+      {/* <ThinkingRobot /> */}
+      <span className="sr-only">Waiting for {from ?? "a reply"}</span>
     </div>
   );
 }

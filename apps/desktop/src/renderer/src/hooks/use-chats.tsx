@@ -1,14 +1,17 @@
 import * as React from "react";
-import type { ChatMessage, CompletionEvent } from "../../../preload/api";
+import type { AgentEvent, ApprovalDecision, ChatMessage, CompletionEvent, ToolRisk } from "../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
 
-export type Turn = ChatMessage & {
+/** A user message or an assistant reply. */
+export type TextTurn = ChatMessage & {
   /** When the turn was sent or received, epoch ms. Older saved turns may lack it. */
   at?: number;
   /** True while the reply is still arriving; never persisted as true. */
   streaming?: boolean;
+  /** Which model step of the agent turn produced this reply (workspace chats only). */
+  step?: number;
   meta?: {
     provider: string;
     model: string;
@@ -20,6 +23,35 @@ export type Turn = ChatMessage & {
   };
 };
 
+/**
+ * Where a tool call is in its life. `pending` = announced, not started;
+ * `awaiting_approval` = the user must click Allow or Deny; `denied` = they
+ * clicked Deny (the model is told); `failed` = the tool threw.
+ */
+export type ToolStatus = "pending" | "awaiting_approval" | "running" | "done" | "failed" | "denied";
+
+/**
+ * One tool call the model made in a workspace chat: what it asked for, what
+ * came back, how long it took. Rendered as a card between assistant replies.
+ */
+export type ToolTurn = {
+  role: "tool";
+  at?: number;
+  callId: string;
+  name: string;
+  input: Record<string, unknown>;
+  risk: ToolRisk;
+  status: ToolStatus;
+  /** The model step that asked for this call. */
+  step: number;
+  /** Exactly what went back to the model. */
+  output?: string;
+  error?: string;
+  durationMs?: number;
+};
+
+export type Turn = TextTurn | ToolTurn;
+
 export type Chat = {
   id: string;
   title: string;
@@ -29,6 +61,14 @@ export type Chat = {
   model: string;
   /** Workspace the chat runs in; unset for a free-standing chat on the Chat tab. */
   spaceId?: string;
+  /**
+   * Server-side agent session backing a workspace chat. Created on the first
+   * send; the server owns the transcript from then on and this store keeps a
+   * mirror for display.
+   */
+  sessionId?: string;
+  /** "provider/model" the session is currently pinned to, so a picker change is pushed before the next send. */
+  sessionPin?: string;
   /** Set once the user renames the chat; the title then stops following the first message. */
   titleLocked?: boolean;
   createdAt: number;
@@ -45,6 +85,8 @@ type ChatsContextValue = {
   isBusy: (id: string) => boolean;
   /** Cancels the reply in flight for a chat; whatever arrived so far stays. */
   stop: (id: string) => void;
+  /** Answers a tool call that is `awaiting_approval`. */
+  approve: (id: string, callId: string, decision: ApprovalDecision) => void;
   errorOf: (id: string) => string | null;
   /** Changes the provider and model an existing conversation will use from now on. */
   setModel: (id: string, provider: string, model: string) => void;
@@ -75,12 +117,24 @@ function readChats(userId: string): Chat[] {
 
 function writeChats(userId: string, chats: Chat[]) {
   try {
-    // A reload mid-answer must not leave a turn stuck in the streaming state.
-    const settled = chats.map((c) => ({ ...c, turns: c.turns.map(({ streaming: _, ...t }) => t) }));
+    // A reload mid-answer must not leave a turn stuck in the streaming state,
+    // nor a tool call that looks like it is still running or waiting on a click.
+    const settled = chats.map((c) => ({ ...c, turns: c.turns.map(settleTurn) }));
     window.localStorage.setItem(storageKey(userId), JSON.stringify(settled));
   } catch {
     // Storage full or unavailable; the in-memory copy still works for this session.
   }
+}
+
+/** The persisted form of a turn: nothing in flight. */
+function settleTurn(t: Turn): Turn {
+  if (t.role === "tool") {
+    return t.status === "done" || t.status === "failed" || t.status === "denied"
+      ? t
+      : { ...t, status: "failed", error: t.error || "Interrupted before it finished" };
+  }
+  const { streaming: _, ...rest } = t;
+  return rest;
 }
 
 function newId() {
@@ -93,7 +147,7 @@ function newId() {
 function titleFor(turns: Turn[]): string {
   const first =
     turns
-      .find((t) => t.role === "user")
+      .find((t): t is TextTurn => t.role === "user")
       ?.content.trim()
       .split("\n")[0] ?? "";
   if (!first) return "New chat";
@@ -116,13 +170,16 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   /** streamId -> handler for that stream's events. */
   const pendingStreams = React.useRef(new Map<string, (event: CompletionEvent) => void>());
-  /** chatId -> streamId currently answering it, for `stop`. */
+  /** turnId -> handler for that agent turn's events. */
+  const pendingTurns = React.useRef(new Map<string, (event: AgentEvent) => void>());
+  /** chatId -> streamId (plain chat) or turnId (workspace chat) currently answering it, for `stop`. */
   const activeStreams = React.useRef(new Map<string, string>());
 
   React.useEffect(
     () => window.photon.onCompletionEvent((streamId, event) => pendingStreams.current.get(streamId)?.(event)),
     [],
   );
+  React.useEffect(() => window.photon.onAgentEvent((turnId, event) => pendingTurns.current.get(turnId)?.(event)), []);
 
   // Swap the list when the signed-in user changes.
   React.useEffect(() => {
@@ -146,6 +203,145 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       }),
     );
   }, []);
+
+  /**
+   * A workspace chat turn. The server runs the model, main runs the tools; this
+   * only mirrors what happens into turns so the user sees every step:
+   *
+   *   start       -> a new assistant bubble for this model step
+   *   delta       -> text grows in place
+   *   step_done   -> bubble settles with usage; an empty bubble (the model went
+   *                  straight to tools) is dropped
+   *   tool_call   -> a tool card, status "pending"
+   *   approval_needed / tool_running / tool_result -> the card's status, output, timing
+   *   done        -> the turn is over (`max_steps` is surfaced as an error)
+   *   error       -> shown under the transcript; whatever arrived stays
+   */
+  const runAgent = React.useCallback(
+    (target: string, content: string, spaceId: string, opts: SendOptions) => {
+      const turnId = newId();
+      let step = 0;
+
+      const patchTool = (callId: string, fn: (t: ToolTurn) => ToolTurn) =>
+        patchTurns(target, (prev) => prev.map((t) => (t.role === "tool" && t.callId === callId ? fn(t) : t)));
+
+      // The assistant bubble for the current step is always the last streaming text turn.
+      const settleAssistant = (fn: (t: TextTurn) => TextTurn | null) =>
+        patchTurns(target, (prev) => {
+          const last = prev[prev.length - 1];
+          if (!last || last.role === "tool" || !last.streaming) return prev;
+          const next = fn(last);
+          return next ? [...prev.slice(0, -1), next] : prev.slice(0, -1);
+        });
+
+      const handlers: { [K in AgentEvent["type"]]: (ev: Extract<AgentEvent, { type: K }>) => void } = {
+        start(ev) {
+          step = ev.step;
+          patchTurns(target, (prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: "",
+              at: Date.now(),
+              streaming: true,
+              step: ev.step,
+              meta: { provider: ev.provider, model: ev.model, call_id: "" },
+            },
+          ]);
+        },
+        delta(ev) {
+          settleAssistant((last) => ({ ...last, content: last.content + ev.text }));
+        },
+        step_done(ev) {
+          settleAssistant((last) =>
+            last.content
+              ? {
+                  ...last,
+                  streaming: false,
+                  meta: {
+                    provider: ev.provider,
+                    model: ev.model,
+                    inputTokens: ev.usage.input_tokens,
+                    outputTokens: ev.usage.output_tokens,
+                    tokens: ev.usage.total_tokens,
+                    call_id: ev.call_id ?? "",
+                  },
+                }
+              : null,
+          );
+        },
+        tool_call(ev) {
+          patchTurns(target, (prev) => [
+            ...prev,
+            { role: "tool", at: Date.now(), callId: ev.call_id, name: ev.name, input: ev.input, risk: ev.risk, status: "pending", step },
+          ]);
+        },
+        approval_needed(ev) {
+          patchTool(ev.call_id, (t) => ({ ...t, status: "awaiting_approval" }));
+        },
+        tool_running(ev) {
+          patchTool(ev.call_id, (t) => ({ ...t, status: "running" }));
+        },
+        tool_result(ev) {
+          patchTool(ev.call_id, (t) => ({
+            ...t,
+            status: ev.denied ? "denied" : ev.ok ? "done" : "failed",
+            output: ev.output,
+            error: ev.error,
+            durationMs: ev.duration_ms,
+          }));
+        },
+        done(ev) {
+          if (ev.stop_reason === "max_steps") {
+            setErrors((e) => ({ ...e, [target]: "Stopped: this session reached its step limit." }));
+          }
+        },
+        error(ev) {
+          setErrors((e) => ({ ...e, [target]: ev.message }));
+        },
+      };
+      pendingTurns.current.set(turnId, (event) => {
+        (handlers[event.type] as (ev: AgentEvent) => void)(event);
+      });
+      activeStreams.current.set(target, turnId);
+
+      void (async () => {
+        try {
+          // First send creates the session (main adds the folder path and device info);
+          // a model change from the picker is pushed to the session before the step.
+          const pin = `${opts.provider}/${opts.model}`;
+          const existing = chats.find((c) => c.id === target);
+          let sessionId = existing?.sessionId;
+          if (!sessionId) {
+            const session = await call((t) =>
+              window.photon.createAgentSession(t, { workspace_id: spaceId, provider: opts.provider, model: opts.model }),
+            );
+            sessionId = session.id;
+            const sid = sessionId;
+            setChats((prev) => prev.map((c) => (c.id === target ? { ...c, sessionId: sid, sessionPin: pin } : c)));
+          } else if (existing?.sessionPin !== pin) {
+            const sid = sessionId;
+            await call((t) => window.photon.updateAgentSession(t, sid, { provider: opts.provider, model: opts.model }));
+            setChats((prev) => prev.map((c) => (c.id === target ? { ...c, sessionPin: pin } : c)));
+          }
+          const sid = sessionId;
+          await call((t) => window.photon.runAgentTurn(t, turnId, { sessionId: sid, workspaceId: spaceId, content }));
+        } catch (err) {
+          setErrors((e) => ({ ...e, [target]: errorMessage(err) }));
+        } finally {
+          pendingTurns.current.delete(turnId);
+          if (activeStreams.current.get(target) === turnId) activeStreams.current.delete(target);
+          // Anything still in flight after the turn ended (cancel, disconnect) is settled for display.
+          patchTurns(target, (prev) => prev.map(settleTurn));
+          setBusy((b) => {
+            const { [target]: _, ...rest } = b;
+            return rest;
+          });
+        }
+      })();
+    },
+    [call, chats, patchTurns],
+  );
 
   const send = React.useCallback(
     (id: string | null, content: string, opts: SendOptions) => {
@@ -190,6 +386,11 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       setErrors((e) => ({ ...e, [target]: "" }));
       setBusy((b) => ({ ...b, [target]: true }));
 
+      if (opts.spaceId) {
+        runAgent(target, content, opts.spaceId, opts);
+        return target;
+      }
+
       // One stream per send. The reply grows in place as deltas arrive; the
       // assistant turn is only added once the provider has started answering.
       const streamId = newId();
@@ -205,14 +406,14 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
         delta(ev: Extract<CompletionEvent, { type: "delta" }>) {
           patchTurns(target, (prev) => {
             const last = prev[prev.length - 1];
-            if (!last?.streaming) return prev;
+            if (last?.role === "tool" || !last?.streaming) return prev;
             return [...prev.slice(0, -1), { ...last, content: last.content + ev.text }];
           });
         },
         done(ev: Extract<CompletionEvent, { type: "done" }>) {
           patchTurns(target, (prev) => {
             const last = prev[prev.length - 1];
-            if (!last?.streaming) return prev;
+            if (last?.role === "tool" || !last?.streaming) return prev;
             const meta = {
               provider: ev.provider,
               model: ev.model,
@@ -240,7 +441,8 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             window.photon.streamCompletion(t, streamId, {
               messages: [
                 { role: "system", content: SYSTEM_PROMPT },
-                ...history.map(({ role, content }) => ({ role, content })),
+                // Plain chats never hold tool turns; the filter keeps the types honest.
+                ...history.filter((t): t is TextTurn => t.role !== "tool").map(({ role, content }) => ({ role, content })),
               ],
               provider: opts.provider,
               model: opts.model,
@@ -253,12 +455,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           pendingStreams.current.delete(streamId);
           if (activeStreams.current.get(target) === streamId) activeStreams.current.delete(target);
           // A stream that ended without `done` (cancel, disconnect) keeps its partial text but stops pulsing.
-          if (started) {
-            patchTurns(target, (prev) => {
-              const last = prev[prev.length - 1];
-              return last?.streaming ? [...prev.slice(0, -1), { ...last, streaming: false }] : prev;
-            });
-          }
+          if (started) patchTurns(target, (prev) => prev.map(settleTurn));
           setBusy((b) => {
             const { [target]: _, ...rest } = b;
             return rest;
@@ -268,12 +465,22 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
       return target;
     },
-    [call, chats, patchTurns],
+    [call, chats, patchTurns, runAgent],
   );
 
-  const stop = React.useCallback((id: string) => {
-    const streamId = activeStreams.current.get(id);
-    if (streamId) void window.photon.cancelCompletion(streamId);
+  const stop = React.useCallback(
+    (id: string) => {
+      const streamId = activeStreams.current.get(id);
+      if (!streamId) return;
+      if (pendingTurns.current.has(streamId)) void call((t) => window.photon.cancelAgentTurn(t, streamId));
+      else void window.photon.cancelCompletion(streamId);
+    },
+    [call],
+  );
+
+  const approve = React.useCallback((id: string, callId: string, decision: ApprovalDecision) => {
+    const turnId = activeStreams.current.get(id);
+    if (turnId) void window.photon.approveToolCall(turnId, callId, decision);
   }, []);
 
   const isBusy = React.useCallback((id: string) => Boolean(busy[id]), [busy]);
@@ -309,8 +516,8 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(
-    () => ({ chats, get, send, stop, isBusy, errorOf, setModel, clear, remove, rename }),
-    [chats, get, send, stop, isBusy, errorOf, setModel, clear, remove, rename],
+    () => ({ chats, get, send, stop, approve, isBusy, errorOf, setModel, clear, remove, rename }),
+    [chats, get, send, stop, approve, isBusy, errorOf, setModel, clear, remove, rename],
   );
 
   return <ChatsContext.Provider value={value}>{children}</ChatsContext.Provider>;

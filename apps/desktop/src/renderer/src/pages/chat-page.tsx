@@ -5,19 +5,27 @@ import type { DictationEngine, LlmProvider } from "../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
-import { useChats } from "@/hooks/use-chats";
+import { useChats, type Turn } from "@/hooks/use-chats";
 import { useStoredFlag } from "@/hooks/use-stored-flag";
 import { DICTATION_ENGINE_KEY, useDictation } from "@/hooks/use-dictation";
 import { useToast } from "@/hooks/use-toast";
 import { FolderExplorer } from "@/components/layout/folder-explorer";
 import { HeaderActions } from "@/components/layout/header-actions";
 import { AssistantTurn, PendingTurn, UserTurn } from "@/components/chat/turn";
+import { ToolTurnCard } from "@/components/chat/tool-turn";
 import { Composer } from "@/components/chat/composer";
 import { ModelPicker } from "@/components/chat/model-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 type Pick = { provider: string; model: string };
+
+/** The "waiting" row hides while text is arriving or a tool card is already showing progress. */
+function isStreaming(turn: Turn | undefined): boolean {
+  if (!turn) return false;
+  if (turn.role === "tool") return turn.status !== "done" && turn.status !== "failed" && turn.status !== "denied";
+  return Boolean(turn.streaming);
+}
 
 /**
  * Resolves the provider and model to use from a pick that may be stale: the
@@ -37,8 +45,8 @@ function EmptyState({ space, provider, model }: { space?: string; provider?: str
       <div className="pt-6">
         <h1 className="text-display">Working in {space}</h1>
         <p className="mt-3 max-w-[52ch] text-lead text-slate">
-          Ask about the files here, or say what you want changed. Photon reads and writes inside this folder and nowhere
-          else.
+          Ask about the files here, or say what you want changed. Photon lists, searches, reads and edits inside this
+          folder and nowhere else, and asks before it writes or runs a command. Every step shows up here.
         </p>
         <p className="mt-6 text-small text-slate">
           Replies come from {provider} with <span className="font-mono">{model}</span>. Change that below.
@@ -89,7 +97,16 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   const { current, model } = resolveModel(ready, chat ? { provider: chat.provider, model: chat.model } : draftPick);
 
   const [draft, setDraft] = React.useState("");
+  const scrollRef = React.useRef<HTMLDivElement>(null);
   const endRef = React.useRef<HTMLDivElement>(null);
+  // Follow the reply only while the user is at the bottom. Scrolling up mid-answer
+  // unpins the view; scrolling back down (or sending) pins it again.
+  const pinned = React.useRef(true);
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }
 
   // Dictation appends to whatever is already typed; it needs a provider that does speech to text.
   const { toast } = useToast();
@@ -108,7 +125,7 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   const error = chatId ? chats.errorOf(chatId) : null;
 
   React.useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (pinned.current) endRef.current?.scrollIntoView({ block: "end" });
   }, [turns, busy]);
 
   // A deleted or unknown chat id falls back to a fresh draft.
@@ -125,6 +142,7 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
     if (!content || busy || !current) return;
     if (inSpace && !spaceId) return;
     setDraft("");
+    pinned.current = true;
     const id = chats.send(chatId ?? null, content, { provider: current.provider, model, spaceId });
     if (!chatId) navigate(`/chat/${id}`, { replace: true });
   }
@@ -151,7 +169,7 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
         </HeaderActions>
       )}
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-auto px-8 py-8 md:px-14">
+        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto px-8 py-8 md:px-14">
           <div className="flex flex-col gap-7">
             {!providers.loading && !ready.length && (
               <Alert variant="problem">
@@ -171,13 +189,20 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
               <EmptyState space={space?.name} provider={current?.name} model={model} />
             )}
             {turns.map((t, i) =>
-              t.role === "user" ? (
+              t.role === "tool" ? (
+                // Approval buttons only work while this chat's turn is in flight.
+                <ToolTurnCard
+                  key={t.callId}
+                  turn={t}
+                  onDecide={busy && chatId ? (callId, decision) => chats.approve(chatId, callId, decision) : undefined}
+                />
+              ) : t.role === "user" ? (
                 <UserTurn key={i} turn={t} initials={initials} />
               ) : (
                 <AssistantTurn key={i} turn={t} />
               ),
             )}
-            {busy && !turns[turns.length - 1]?.streaming && <PendingTurn from={current?.name} />}
+            {busy && !isStreaming(turns[turns.length - 1]) && <PendingTurn from={current?.name} />}
             {error && (
               <Alert variant="problem">
                 <AlertDescription>{error}</AlertDescription>

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import logging
 from typing import Any, Dict, Generator, List, Optional
 
+from ai_control.choices import LlmCapabilityChoices
 from ai_control.llm.exceptions import AiUnavailableError
 from ai_control.llm.providers import (
+    STOP_END_TURN,
     AbstractLLMProvider,
     AnthropicLLMProvider,
     CompletionResult,
     OpenAICompatibleLLMProvider,
     ProviderConfig,
+    ToolCall,
 )
 from ai_control.llm.recorder import LlmCallRecorder
 from ai_control.models import LlmProviderModel
@@ -46,6 +50,8 @@ def _short_error(error: Exception) -> str:
     return text[:_ERROR_DETAIL_LIMIT]
 
 
+
+
 @dataclass
 class CompletionOutcome:
     content: str
@@ -53,6 +59,9 @@ class CompletionOutcome:
     model: str
     call_id: str
     usage: Dict[str, int]
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    stop_reason: str = STOP_END_TURN
+    raw_stop_reason: Optional[str] = None
 
 
 @dataclass
@@ -69,7 +78,9 @@ class _Request:
     candidates: List[LlmProviderModel]
     prompt_text: str
     streamed: bool
+    tools: Optional[List[Dict[str, Any]]] = None
     skipped_no_key: List[str] = field(default_factory=list)
+    skipped_no_tools: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
 
     @property
@@ -103,6 +114,8 @@ class LLMOrchestrator:
     Candidates are active ``LlmProviderModel`` rows in priority order, reduced
     to the ones the user has stored an API key for. A pinned ``provider`` is
     tried first but the rest still act as fallbacks unless ``strict`` is set.
+    When ``tools`` are attached, rows without the ``tool_calling`` capability
+    are skipped too.
 
     Both entry points walk the same steps:
 
@@ -140,11 +153,23 @@ class LLMOrchestrator:
 
     @staticmethod
     def _messages_text(messages: List[Dict[str, Any]]) -> str:
-        return "\n".join(
-            str(msg.get("content", ""))
-            for msg in messages
-            if isinstance(msg, dict) and msg.get("role") in {"system", "user"}
-        ).strip()
+        """Flat transcript stored on the call row, so the prompt is reviewable later."""
+        lines: List[str] = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            if role in {"system", "user"}:
+                lines.append(str(msg.get("content", "")))
+            elif role == "assistant":
+                if msg.get("content"):
+                    lines.append(f"[assistant] {msg['content']}")
+                for call in msg.get("tool_calls") or []:
+                    lines.append(f"[tool_call {call.get('name')}] {json.dumps(call.get('input') or {}, ensure_ascii=False)}")
+            elif role == "tool_results":
+                for r in msg.get("results") or []:
+                    lines.append(f"[tool_result {r.get('name')}] {r.get('content') or ''}")
+        return "\n".join(lines).strip()
 
     @classmethod
     def candidate_providers(cls, user, *, preferred_provider: str = "", strict: bool = False) -> List[LlmProviderModel]:
@@ -170,6 +195,7 @@ class LLMOrchestrator:
         llm_config: Optional[Dict[str, Any]],
         trace_id: Optional[str],
         streamed: bool,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> _Request:
         cls._ensure_defaults()
         preferred = (provider or "").strip().lower()
@@ -187,6 +213,7 @@ class LLMOrchestrator:
             candidates=cls.candidate_providers(user, preferred_provider=preferred, strict=strict),
             prompt_text=cls._messages_text(messages),
             streamed=streamed,
+            tools=tools or None,
         )
 
     # -------------------------------------------------------- step 2: attempts
@@ -199,6 +226,9 @@ class LLMOrchestrator:
             client = cls._registry.get(str(row.api_style))
             if client is None:
                 logger.warning("[LLMOrchestrator] Provider %s has unknown api_style %s; skipping", row.provider, row.api_style)
+                continue
+            if req.tools and not row.has_capability(LlmCapabilityChoices.TOOL_CALLING.value):
+                req.skipped_no_tools.append(row.provider)
                 continue
             api_key = SecretService.get_api_key(req.user, row.provider)
             if not api_key:
@@ -215,6 +245,8 @@ class LLMOrchestrator:
             }
             if req.streamed:
                 metadata["streamed"] = True
+            if req.tools:
+                metadata["tool_names"] = [t["name"] for t in req.tools]
             yield _Attempt(
                 row=row,
                 client=client,
@@ -227,6 +259,13 @@ class LLMOrchestrator:
 
     @staticmethod
     def _record_success(req: _Request, attempt: _Attempt, result: CompletionResult):
+        response_json = None
+        if result.tool_calls or result.raw_stop_reason:
+            response_json = {
+                "stop_reason": result.stop_reason,
+                "raw_stop_reason": result.raw_stop_reason,
+                "tool_calls": [c.as_dict() for c in result.tool_calls],
+            }
         return attempt.rec.success(
             user=req.user,
             provider=attempt.provider,
@@ -234,6 +273,7 @@ class LLMOrchestrator:
             task_key=req.task_key,
             prompt_text=req.prompt_text,
             response_text=result.content,
+            response_json=response_json,
             trace_id=req.trace_id,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
@@ -265,7 +305,12 @@ class LLMOrchestrator:
     @staticmethod
     def _exhausted(req: _Request) -> AiUnavailableError:
         candidate_names = req.candidate_names
-        if req.skipped_no_key and len(req.skipped_no_key) == len(candidate_names):
+        skipped = len(req.skipped_no_key) + len(req.skipped_no_tools)
+        if candidate_names and skipped == len(candidate_names):
+            if not req.skipped_no_key:
+                return AiUnavailableError(
+                    "None of the configured providers support tool calling: " + ", ".join(req.skipped_no_tools) + "."
+                )
             return AiUnavailableError(
                 "No API key saved for " + ", ".join(req.skipped_no_key) + ". Add one in Settings."
             )
@@ -292,25 +337,29 @@ class LLMOrchestrator:
         model: Optional[str] = None,
         llm_config: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> CompletionOutcome:
-        """Raises ``AiUnavailableError`` when no provider produced content."""
+        """Raises ``AiUnavailableError`` when no provider produced content or tool calls."""
         req = cls._init_request(
             user=user, messages=messages, task_key=task_key, provider=provider, model=model,
-            llm_config=llm_config, trace_id=trace_id, streamed=False,
+            llm_config=llm_config, trace_id=trace_id, streamed=False, tools=tools,
         )
 
         for attempt in cls._attempts(req):
             try:
-                result = attempt.client.complete(req.messages, attempt.config, llm_config=req.llm_config)
-                if not result.content:
+                result = attempt.client.complete(req.messages, attempt.config, llm_config=req.llm_config, tools=req.tools)
+                if result.is_empty:
                     raise AiUnavailableError("Provider returned an empty response")
                 call = cls._record_success(req, attempt, result)
                 return CompletionOutcome(
-                    content=result.content,
+                    content=result.content or "",
                     provider=attempt.provider,
                     model=attempt.model,
                     call_id=str(call.id),
                     usage=result.usage,
+                    tool_calls=result.tool_calls,
+                    stop_reason=result.stop_reason or STOP_END_TURN,
+                    raw_stop_reason=result.raw_stop_reason,
                 )
             except Exception as e:  # noqa: BLE001 - every provider failure falls through to the next row
                 cls._record_failure(req, attempt, e)
@@ -328,13 +377,16 @@ class LLMOrchestrator:
         model: Optional[str] = None,
         llm_config: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Generator[Dict[str, Any], None, None]:
         """
         Streaming twin of ``run_completion``. Yields events:
 
         - ``{"type": "start", "provider", "model"}`` once a provider accepted the call
         - ``{"type": "delta", "text"}`` per text chunk
-        - ``{"type": "done", "provider", "model", "call_id", "usage"}`` at the end
+        - ``{"type": "tool_call", "call_id", "name", "input"}`` per tool the model asked for
+        - ``{"type": "done", "provider", "model", "call_id", "usage", "stop_reason",
+          "raw_stop_reason", "tool_calls"}`` at the end
         - ``{"type": "error", "message"}`` instead of ``done`` when nothing answered
 
         Fallback to the next provider happens only before the first delta; a
@@ -342,14 +394,24 @@ class LLMOrchestrator:
         """
         req = cls._init_request(
             user=user, messages=messages, task_key=task_key, provider=provider, model=model,
-            llm_config=llm_config, trace_id=trace_id, streamed=True,
+            llm_config=llm_config, trace_id=trace_id, streamed=True, tools=tools,
         )
 
         for attempt in cls._attempts(req):
             started = False
             parts: List[str] = []
             try:
-                gen = attempt.client.complete_stream(req.messages, attempt.config, llm_config=req.llm_config)
+                gen = attempt.client.complete_stream(
+                    req.messages, attempt.config, llm_config=req.llm_config, tools=req.tools,
+                )
+                # ``complete_stream`` yields text chunks and *returns* the
+                # finished CompletionResult (usage, tool calls, stop reason).
+                # A ``for`` loop would discard that return value, so drive the
+                # generator by hand: ``next()`` gives the next chunk, and the
+                # ``StopIteration`` raised at the end carries the result in
+                # ``.value``. ``yield from`` is no good either, because each
+                # chunk has to be wrapped in a ``delta`` event and preceded by
+                # ``start`` the first time round.
                 result = None
                 while True:
                     try:
@@ -358,19 +420,32 @@ class LLMOrchestrator:
                         result = stop.value
                         break
                     if not started:
+                        # First chunk: the provider accepted the call, so
+                        # from here on there is no falling back to another row.
                         started = True
                         yield {"type": "start", "provider": attempt.provider, "model": attempt.model}
                     parts.append(text)
                     yield {"type": "delta", "text": text}
-                if not result or not result.content:
+                # ``result`` is None only if the provider generator returned
+                # nothing at all, which a well-behaved client never does.
+                if result is None or result.is_empty:
                     raise AiUnavailableError("Provider returned an empty response")
-                call = cls._record_success(req, attempt, result)
+                if not started:
+                    # Tool-only reply: no text ever streamed, but the call succeeded.
+                    started = True
+                    yield {"type": "start", "provider": attempt.provider, "model": attempt.model}
+                for call in result.tool_calls:
+                    yield {"type": "tool_call", "call_id": call.id, "name": call.name, "input": call.input}
+                call_row = cls._record_success(req, attempt, result)
                 yield {
                     "type": "done",
                     "provider": attempt.provider,
                     "model": attempt.model,
-                    "call_id": str(call.id),
+                    "call_id": str(call_row.id),
                     "usage": result.usage,
+                    "stop_reason": result.stop_reason or STOP_END_TURN,
+                    "raw_stop_reason": result.raw_stop_reason,
+                    "tool_calls": [c.as_dict() for c in result.tool_calls],
                 }
                 return
             except Exception as e:  # noqa: BLE001 - recorded, then fall through or surface

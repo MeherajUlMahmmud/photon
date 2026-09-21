@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { CompletionEvent, LocalDictationProgress, PhotonApi } from "./api";
+import type { AgentEvent, CompletionEvent, LocalDictationProgress, PhotonApi } from "./api";
 
 const photonApi: PhotonApi = {
   getInfo: () => ipcRenderer.invoke("app:getInfo"),
@@ -16,6 +16,7 @@ const photonApi: PhotonApi = {
   deleteApiKey: (tokens, provider) => ipcRenderer.invoke("secrets:deleteApiKey", tokens, provider),
   listWorkspaces: (tokens) => ipcRenderer.invoke("workspace:list", tokens),
   openWorkspace: (tokens) => ipcRenderer.invoke("workspace:open", tokens),
+  saveTextFile: (input) => ipcRenderer.invoke("file:saveText", input),
   getActiveWorkspace: (tokens) => ipcRenderer.invoke("workspace:getActive", tokens),
   listWorkspaceDir: (tokens, workspaceId, relPath) =>
     ipcRenderer.invoke("workspace:listDir", tokens, workspaceId, relPath),
@@ -33,6 +34,16 @@ const photonApi: PhotonApi = {
   testProvider: (tokens, provider, apiKey) => ipcRenderer.invoke("ai:testProvider", tokens, provider, apiKey),
   createCompletion: (tokens, input) => ipcRenderer.invoke("ai:createCompletion", tokens, input),
   createAgentSession: (tokens, input) => ipcRenderer.invoke("ai:createAgentSession", tokens, input ?? {}),
+  updateAgentSession: (tokens, sessionId, input) => ipcRenderer.invoke("ai:updateAgentSession", tokens, sessionId, input),
+  getAgentSession: (tokens, sessionId) => ipcRenderer.invoke("ai:getAgentSession", tokens, sessionId),
+  runAgentTurn: (tokens, turnId, input) => ipcRenderer.invoke("ai:runAgentTurn", tokens, turnId, input),
+  approveToolCall: (turnId, callId, decision) => ipcRenderer.invoke("ai:approveToolCall", turnId, callId, decision),
+  cancelAgentTurn: (tokens, turnId) => ipcRenderer.invoke("ai:cancelAgentTurn", tokens, turnId),
+  onAgentEvent: (listener) => {
+    const handler = (_e: Electron.IpcRendererEvent, turnId: string, event: AgentEvent) => listener(turnId, event);
+    ipcRenderer.on("ai:agentEvent", handler);
+    return () => ipcRenderer.removeListener("ai:agentEvent", handler);
+  },
   deviceInfo: () => ipcRenderer.invoke("device:info"),
   streamCompletion: (tokens, streamId, input) => ipcRenderer.invoke("ai:streamCompletion", tokens, streamId, input),
   cancelCompletion: (streamId) => ipcRenderer.invoke("ai:cancelCompletion", streamId),

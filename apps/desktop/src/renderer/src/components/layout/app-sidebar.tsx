@@ -5,6 +5,7 @@ import {
   CaretUpDown,
   ChatCircleText,
   DotsThree,
+  DownloadSimple,
   FolderOpen,
   GearSix,
   Lifebuoy,
@@ -20,6 +21,7 @@ import { useAsync } from "@/hooks/use-async";
 import { useChats, type Chat } from "@/hooks/use-chats";
 import { useToast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/utils";
+import { chatToMarkdown, exportFilename } from "@/lib/export-chat";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -123,6 +125,19 @@ function RenameDialog({
 function ChatRow({ chat, pathname, onRemove }: { chat: Chat; pathname: string; onRemove: (id: string) => void }) {
   const { clear, rename } = useChats();
   const { isMobile } = useSidebar();
+  const { toast } = useToast();
+  const { user } = useAuth();
+
+  // Everything the transcript shows, tool calls and their output included, as one .md file.
+  async function exportChat() {
+    try {
+      const content = chatToMarkdown(chat, { exportedBy: user?.email });
+      const path = await window.photon.saveTextFile({ defaultName: exportFilename(chat), content });
+      if (path) toast(`Saved to ${path}`);
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  }
   const isActive = pathname === `/chat/${chat.id}`;
   const [renaming, setRenaming] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
@@ -144,6 +159,10 @@ function ChatRow({ chat, pathname, onRemove }: { chat: Chat; pathname: string; o
           <DropdownMenuItem onSelect={() => setRenaming(true)}>
             <PencilSimple weight="bold" />
             Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void exportChat()} disabled={!chat.turns.length}>
+            <DownloadSimple weight="bold" />
+            Export as Markdown
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => clear(chat.id)} disabled={!chat.turns.length}>
             <Broom weight="bold" />
