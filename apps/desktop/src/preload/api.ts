@@ -83,6 +83,40 @@ export type CompletionOutput = {
   usage: Record<string, number>;
 };
 
+/** The client machine, sent when an agent session is created so the model tailors commands to it. */
+export type DeviceInfo = {
+  /** Node's `process.platform`. */
+  os: "darwin" | "linux" | "win32";
+  os_version?: string;
+  arch?: string;
+  shell?: string;
+  locale?: string;
+  app_version?: string;
+};
+
+export type AgentSessionCreateInput = {
+  workspace_id?: string | null;
+  provider?: string;
+  model?: string;
+  task_key?: string;
+};
+
+export type AgentSession = {
+  id: string;
+  title: string;
+  workspace: string | null;
+  provider: string;
+  model: string;
+  task_key: string;
+  device: Partial<DeviceInfo>;
+  status: "idle" | "running" | "awaiting_tools" | "error";
+  step_count: number;
+  max_steps: number;
+  last_error: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type TranscriptionInput = {
   /** Base64 audio, at most a couple of minutes. */
   audio: string;
@@ -185,6 +219,11 @@ export type PhotonApi = {
   /** Checks a key by listing the provider's models. `apiKey` unset tests the stored key. */
   testProvider: (tokens: Tokens, provider: string, apiKey?: string) => Promise<WithTokens<ProviderTestResult>>;
   createCompletion: (tokens: Tokens, input: CompletionInput) => Promise<WithTokens<CompletionOutput>>;
+  /** Starts an agent session. Main attaches this machine's `DeviceInfo` so the server shapes the prompt for it. */
+  createAgentSession: (tokens: Tokens, input?: AgentSessionCreateInput) => Promise<WithTokens<AgentSession>>;
+  /** What `createAgentSession` reports about this machine; for showing in settings. */
+  deviceInfo: () => Promise<DeviceInfo>;
+
   /**
    * Streams a completion. Events arrive through `onCompletionEvent` tagged
    * with `streamId`; the promise settles when the stream ends or is cancelled.

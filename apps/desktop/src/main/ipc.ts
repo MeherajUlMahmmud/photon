@@ -3,6 +3,8 @@ import { ipcMain, shell } from "electron";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type {
+  AgentSession,
+  AgentSessionCreateInput,
   AuthResult,
   AuthSession,
   AuthUser,
@@ -26,6 +28,7 @@ import type {
   WorkspaceInfo,
 } from "../preload/api.js";
 import { ApiError, type ApiClient } from "./api-client.js";
+import { deviceInfo } from "./device-info.js";
 
 export interface IpcDeps {
   api: ApiClient;
@@ -323,6 +326,17 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle("ai:createCompletion", (_e, tokens: Tokens, input: CompletionInput) =>
     withTokens(tokens, (opts) =>
       api.request<CompletionOutput>("POST", "/api/ai/completion/create/", { ...opts, body: input }),
+    ),
+  );
+
+  ipcMain.handle("device:info", () => deviceInfo());
+
+  ipcMain.handle("ai:createAgentSession", (_e, tokens: Tokens, input: AgentSessionCreateInput) =>
+    withTokens(tokens, (opts) =>
+      api.request<AgentSession>("POST", "/api/ai/agent/session/create/", {
+        ...opts,
+        body: { ...input, device: deviceInfo() },
+      }),
     ),
   );
 
