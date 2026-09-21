@@ -5,21 +5,35 @@ import { useAuth } from "@/hooks/use-auth";
 import { errorMessage } from "@/lib/utils";
 
 export type Turn = ChatMessage & {
-  meta?: { provider: string; model: string; tokens?: number; call_id: string };
+  /** When the turn was sent or received, epoch ms. Older saved turns may lack it. */
+  at?: number;
+  meta?: {
+    provider: string;
+    model: string;
+    /** Prompt and completion tokens as the provider reported them; `tokens` is the total. */
+    inputTokens?: number;
+    outputTokens?: number;
+    tokens?: number;
+    call_id: string;
+  };
 };
 
 export type Chat = {
   id: string;
   title: string;
   turns: Turn[];
-  /** Provider and model the chat was started with; the page reuses them on reopen. */
+  /** Provider and model this conversation uses; changed from the picker, applied to the next send. */
   provider: string;
   model: string;
+  /** Workspace the chat runs in; unset for a free-standing chat on the Chat tab. */
+  spaceId?: string;
+  /** Set once the user renames the chat; the title then stops following the first message. */
+  titleLocked?: boolean;
   createdAt: number;
   updatedAt: number;
 };
 
-type SendOptions = { provider: string; model: string };
+type SendOptions = { provider: string; model: string; spaceId?: string };
 
 type ChatsContextValue = {
   chats: Chat[];
@@ -28,8 +42,12 @@ type ChatsContextValue = {
   send: (id: string | null, content: string, opts: SendOptions) => string;
   isBusy: (id: string) => boolean;
   errorOf: (id: string) => string | null;
+  /** Changes the provider and model an existing conversation will use from now on. */
+  setModel: (id: string, provider: string, model: string) => void;
   clear: (id: string) => void;
   remove: (id: string) => void;
+  /** Gives the chat a fixed title; an empty title unlocks it again. */
+  rename: (id: string, title: string) => void;
 };
 
 const ChatsContext = React.createContext<ChatsContextValue | null>(null);
@@ -109,20 +127,35 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
       prev.map((c) => {
         if (c.id !== id) return c;
         const turns = fn(c.turns);
-        return { ...c, turns, title: titleFor(turns), updatedAt: Date.now() };
+        return { ...c, turns, title: c.titleLocked ? c.title : titleFor(turns), updatedAt: Date.now() };
       }),
     );
   }, []);
 
   const send = React.useCallback(
     (id: string | null, content: string, opts: SendOptions) => {
-      const userTurn: Turn = { role: "user", content };
+      const userTurn: Turn = { role: "user", content, at: Date.now() };
       let chatId = id;
       let history: Turn[];
 
       if (chatId) {
         history = [...(chats.find((c) => c.id === chatId)?.turns ?? []), userTurn];
-        patchTurns(chatId, () => history);
+        const target = chatId;
+        // The model used for this send is the one the conversation keeps.
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === target
+              ? {
+                  ...c,
+                  turns: history,
+                  title: titleFor(history),
+                  provider: opts.provider,
+                  model: opts.model,
+                  updatedAt: Date.now(),
+                }
+              : c,
+          ),
+        );
       } else {
         const now = Date.now();
         chatId = newId();
@@ -160,9 +193,12 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             {
               role: "assistant",
               content: out.content,
+              at: Date.now(),
               meta: {
                 provider: out.provider,
                 model: out.model,
+                inputTokens: out.usage.input_tokens,
+                outputTokens: out.usage.output_tokens,
                 tokens: out.usage.total_tokens,
                 call_id: out.call_id,
               },
@@ -186,6 +222,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
   const isBusy = React.useCallback((id: string) => Boolean(busy[id]), [busy]);
   const errorOf = React.useCallback((id: string) => errors[id] || null, [errors]);
 
+  const setModel = React.useCallback((id: string, provider: string, model: string) => {
+    setChats((prev) => prev.map((c) => (c.id === id ? { ...c, provider, model } : c)));
+  }, []);
+
   const clear = React.useCallback(
     (id: string) => {
       patchTurns(id, () => []);
@@ -198,9 +238,18 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
     setChats((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
+  const rename = React.useCallback((id: string, title: string) => {
+    const next = title.trim();
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id !== id ? c : next ? { ...c, title: next, titleLocked: true } : { ...c, title: titleFor(c.turns), titleLocked: false },
+      ),
+    );
+  }, []);
+
   const value = React.useMemo(
-    () => ({ chats, get, send, isBusy, errorOf, clear, remove }),
-    [chats, get, send, isBusy, errorOf, clear, remove],
+    () => ({ chats, get, send, isBusy, errorOf, setModel, clear, remove, rename }),
+    [chats, get, send, isBusy, errorOf, setModel, clear, remove, rename],
   );
 
   return <ChatsContext.Provider value={value}>{children}</ChatsContext.Provider>;

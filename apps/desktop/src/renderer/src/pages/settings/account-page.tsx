@@ -5,8 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { errorMessage, formatDateTime } from "@/lib/utils";
 import { Fact, Facts } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { InputField } from "@/components/form-fields";
 import { SettingsSection } from "@/pages/settings/settings-layout";
 
 export function AccountSettingsPage() {
@@ -40,19 +39,28 @@ export function AccountSettingsPage() {
           }}
         >
           <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="first">First name</Label>
-              <Input id="first" className="bg-sheet" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="last">Last name</Label>
-              <Input id="last" className="bg-sheet" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-            </div>
+            <InputField
+              name="first_name"
+              label="First name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
+            />
+            <InputField
+              name="last_name"
+              label="Last name"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              autoComplete="family-name"
+            />
           </div>
-          <div className="grid gap-2">
-            <Label>Email</Label>
-            <Input value={user?.email ?? ""} readOnly className="font-mono text-small text-slate" />
-          </div>
+          <InputField
+            name="email"
+            label="Email"
+            value={user?.email ?? ""}
+            readOnly
+            inputClassName="font-mono text-small text-slate"
+          />
           <div>
             <Button type="submit" disabled={busy}>
               Save name

@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { errorMessage } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordField } from "@/components/form-fields";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SettingsSection } from "@/pages/settings/settings-layout";
 
@@ -55,22 +55,23 @@ function ProviderRow({ provider, onChanged }: { provider: LlmProvider; onChanged
         <p className="mt-1 font-mono text-small text-slate">{provider.default_model}</p>
       </div>
       <form
-        className="flex gap-2"
+        className="flex items-start gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
         }}
       >
-        <Input
-          type="password"
+        <PasswordField
+          name={`${provider.provider}_api_key`}
+          label={`${provider.name} API key`}
+          hideLabel
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder={provider.has_key ? "Paste a new key to replace the saved one" : "Paste the API key"}
           autoComplete="off"
-          spellCheck={false}
-          className="bg-sheet font-mono text-small"
           disabled={busy}
-          aria-label={`${provider.name} API key`}
+          className="flex-1"
+          inputClassName="font-mono text-small"
         />
         <Button type="submit" disabled={!key.trim() || busy}>
           Save key

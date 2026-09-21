@@ -1,11 +1,14 @@
 import type { BrowserWindow, Dialog } from "electron";
 import { ipcMain } from "electron";
+import { readdir } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
 import type {
   AuthResult,
   AuthSession,
   AuthUser,
   CompletionInput,
   CompletionOutput,
+  DirEntry,
   LlmCall,
   LlmCallDetails,
   LlmCallQuery,
@@ -176,6 +179,27 @@ export function registerIpc(deps: IpcDeps): void {
         .request<WorkspaceInfo | undefined>("GET", "/api/workspace/active/", opts)
         .then((ws) => ws ?? null),
     ),
+  );
+
+  ipcMain.handle("workspace:listDir", (_e, tokens: Tokens, workspaceId: string, relPath: string) =>
+    withTokens(tokens, async (opts): Promise<DirEntry[]> => {
+      // The workspace root comes from the server, never from the renderer, and
+      // the requested path must stay inside it.
+      const page = await api.request<Paginated<WorkspaceInfo>>("GET", "/api/workspace/list/", opts);
+      const ws = page.data.find((w) => w.id === workspaceId);
+      if (!ws) throw new Error("Workspace not found");
+      const root = resolve(ws.root_path);
+      const target = resolve(root, relPath || ".");
+      const rel = relative(root, target);
+      if (rel.startsWith("..") || rel.startsWith(sep) || resolve(root, rel) !== target) {
+        throw new Error("Path is outside the workspace");
+      }
+      const entries = await readdir(target, { withFileTypes: true });
+      return entries
+        .filter((d) => !d.name.startsWith("."))
+        .map((d): DirEntry => ({ name: d.name, kind: d.isDirectory() ? "dir" : "file" }))
+        .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1));
+    }),
   );
 
   ipcMain.handle("user:updateProfile", (_e, tokens: Tokens, input: { first_name: string; last_name: string }) =>

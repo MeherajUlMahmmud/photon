@@ -17,7 +17,7 @@ export function AppShell() {
       <ChatsProvider>
         <SidebarProvider>
           <AppSidebar />
-          <SidebarInset className="min-h-svh">
+          <SidebarInset className="h-svh max-h-svh">
             <header className="flex h-11 shrink-0 items-center gap-2 px-3">
               <SidebarTrigger />
               <Separator orientation="vertical" className="mx-1 h-4" />
@@ -41,6 +41,7 @@ export function AppShell() {
 const TITLES: Record<string, string> = {
   "": "Workspace",
   chat: "Chat",
+  space: "Space",
   settings: "Settings",
   providers: "API keys",
   account: "Account",

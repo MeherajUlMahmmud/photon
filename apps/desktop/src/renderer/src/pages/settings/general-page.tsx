@@ -4,9 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { InputField, SelectField, type SelectOption } from "@/components/form-fields";
 import { SettingsSection } from "@/pages/settings/settings-layout";
 
 const DEFAULT_MODEL = "claude-sonnet-5";
@@ -26,6 +24,10 @@ export function GeneralSettingsPage() {
 
   const known = providers.data?.flatMap((p) => p.model_ids) ?? [];
   const value = known.includes(model) ? model : custom || model ? CUSTOM : "";
+  const options: SelectOption[] = [
+    ...(providers.data?.flatMap((p) => p.model_ids.map((m) => ({ value: m, label: m, group: p.name }))) ?? []),
+    { value: CUSTOM, label: "Type a model id", group: "Anything else" },
+  ];
 
   async function save() {
     const next = value === CUSTOM ? custom.trim() || model : model;
@@ -47,53 +49,34 @@ export function GeneralSettingsPage() {
           void save();
         }}
       >
-        <div className="grid gap-2">
-          <Label>Model</Label>
-          <Select
-            value={value}
-            onValueChange={(v) => {
-              if (v === CUSTOM) {
-                setCustom(known.includes(model) ? "" : model);
-                setModel("");
-              } else {
-                setModel(v);
-                setCustom("");
-              }
-            }}
-          >
-            <SelectTrigger className="w-full font-mono text-small">
-              <SelectValue placeholder="Pick a model" />
-            </SelectTrigger>
-            <SelectContent>
-              {providers.data?.map((p) => (
-                <SelectGroup key={p.provider}>
-                  <SelectLabel>{p.name}</SelectLabel>
-                  {p.model_ids.map((m) => (
-                    <SelectItem key={m} value={m} className="font-mono text-small">
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-              <SelectGroup>
-                <SelectLabel>Anything else</SelectLabel>
-                <SelectItem value={CUSTOM}>Type a model id</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
+        <SelectField
+          name="model"
+          label="Model"
+          placeholder="Pick a model"
+          options={options}
+          value={value}
+          onValueChange={(v) => {
+            if (v === CUSTOM) {
+              setCustom(known.includes(model) ? "" : model);
+              setModel("");
+            } else {
+              setModel(v);
+              setCustom("");
+            }
+          }}
+          triggerClassName="font-mono text-small"
+          itemClassName="font-mono text-small"
+        />
         {value === CUSTOM && (
-          <div className="grid gap-2">
-            <Label htmlFor="custom-model">Model id</Label>
-            <Input
-              id="custom-model"
-              className="font-mono text-small"
-              value={custom}
-              onChange={(e) => setCustom(e.target.value)}
-              placeholder="exactly as the provider names it"
-              spellCheck={false}
-            />
-          </div>
+          <InputField
+            name="custom_model"
+            label="Model id"
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            placeholder="exactly as the provider names it"
+            spellCheck={false}
+            inputClassName="font-mono text-small"
+          />
         )}
         <div>
           <Button type="submit">Save default model</Button>

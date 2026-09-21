@@ -98,7 +98,9 @@
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 6px);
 
-  /* Type scale (Bringhurst-ish): 13 / 15 / 18 / 24 / 36 */
+  /* Type scale (Bringhurst-ish): 11 / 13 / 15 / 18 / 24 / 36 */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.5;
   --text-small: 0.8125rem;
   --text-small--line-height: 1.5;
   --text-body: 0.9375rem;

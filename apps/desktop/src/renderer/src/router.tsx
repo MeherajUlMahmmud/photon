@@ -37,6 +37,8 @@ export const router = createHashRouter([
           { index: true, element: <WorkspacePage /> },
           { path: "chat", element: <ChatPage /> },
           { path: "chat/:chatId", element: <ChatPage /> },
+          { path: "space/chat", element: <ChatPage inSpace /> },
+          { path: "space/:workspaceId/chat", element: <ChatPage inSpace /> },
           {
             path: "settings",
             element: <SettingsLayout />,

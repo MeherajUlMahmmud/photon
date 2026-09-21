@@ -1,0 +1,122 @@
+import * as React from "react";
+import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
+import type { DirEntry } from "../../../../preload/api";
+
+import { useAuth } from "@/hooks/use-auth";
+import { usePanelWidth } from "@/hooks/use-panel-width";
+import { errorMessage } from "@/lib/utils";
+import { ResizeHandle } from "@/components/ui/resize-handle";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const EXPLORER_WIDTH = { fallback: 288, min: 200, max: 640 };
+
+type NodeProps = { workspaceId: string; relPath: string; depth: number };
+
+/** One directory level, loaded when first expanded. */
+function DirChildren({ workspaceId, relPath, depth }: NodeProps) {
+  const { call } = useAuth();
+  const [entries, setEntries] = React.useState<DirEntry[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let live = true;
+    setEntries(null);
+    setError(null);
+    call((t) => window.photon.listWorkspaceDir(t, workspaceId, relPath))
+      .then((list) => live && setEntries(list))
+      .catch((err) => live && setError(errorMessage(err)));
+    return () => {
+      live = false;
+    };
+  }, [call, workspaceId, relPath]);
+
+  const pad = { paddingLeft: `${depth * 12 + 8}px` };
+
+  if (error) {
+    return (
+      <p className="py-1 text-small text-slate" style={pad}>
+        {error}
+      </p>
+    );
+  }
+  if (!entries) {
+    return (
+      <div className="flex flex-col gap-1.5 py-1" style={pad}>
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-4 w-24" />
+      </div>
+    );
+  }
+  if (!entries.length) {
+    return (
+      <p className="py-1 text-small text-slate" style={pad}>
+        Empty
+      </p>
+    );
+  }
+  return (
+    <ul>
+      {entries.map((e) => (
+        <Entry
+          key={e.name}
+          entry={e}
+          workspaceId={workspaceId}
+          relPath={relPath ? `${relPath}/${e.name}` : e.name}
+          depth={depth}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function Entry({ entry, workspaceId, relPath, depth }: { entry: DirEntry } & NodeProps) {
+  const [open, setOpen] = React.useState(false);
+  const isDir = entry.kind === "dir";
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => isDir && setOpen((o) => !o)}
+        className="flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-small hover:bg-sidebar-accent disabled:cursor-default"
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        disabled={!isDir}
+        aria-expanded={isDir ? open : undefined}
+      >
+        <CaretRight
+          weight="bold"
+          className={`size-3 shrink-0 text-slate transition-transform ${isDir ? "" : "invisible"} ${open ? "rotate-90" : ""}`}
+        />
+        {isDir ? (
+          open ? (
+            <FolderOpen weight="fill" className="size-4 shrink-0 text-slate" />
+          ) : (
+            <Folder weight="fill" className="size-4 shrink-0 text-slate" />
+          )
+        ) : (
+          <File weight="bold" className="size-4 shrink-0 text-slate" />
+        )}
+        <span className="truncate">{entry.name}</span>
+      </button>
+      {isDir && open && <DirChildren workspaceId={workspaceId} relPath={relPath} depth={depth + 1} />}
+    </li>
+  );
+}
+
+/** Read-only tree of the workspace folder, shown beside a chat that runs in it. */
+export function FolderExplorer({ workspaceId, name }: { workspaceId: string; name: string }) {
+  const { width, setWidth, reset, min, max } = usePanelWidth("photon.explorer.width", EXPLORER_WIDTH);
+  return (
+    <aside
+      className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-border bg-sidebar"
+      style={{ width }}
+    >
+      <ResizeHandle edge="left" value={width} min={min} max={max} onChange={setWidth} onReset={reset} label="Resize folder panel" />
+      <div className="flex h-9 items-center px-3 text-small font-medium text-foreground">
+        <span className="truncate">{name}</span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto pb-3">
+        <DirChildren workspaceId={workspaceId} relPath="" depth={0} />
+      </div>
+    </aside>
+  );
+}

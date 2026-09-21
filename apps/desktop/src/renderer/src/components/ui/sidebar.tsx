@@ -4,6 +4,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { SidebarSimple } from "@phosphor-icons/react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
+import { usePanelWidth } from "@/hooks/use-panel-width";
+import { ResizeHandle } from "@/components/ui/resize-handle";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,9 +15,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const SIDEBAR_STORAGE_KEY = "photon.sidebar.open";
-const SIDEBAR_WIDTH = "15rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
+const SIDEBAR_WIDTH_STORAGE_KEY = "photon.sidebar.width";
+const SIDEBAR_WIDTH_PX = { fallback: 240, min: 180, max: 480 };
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {
@@ -26,6 +29,14 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void;
   isMobile: boolean;
   toggleSidebar: () => void;
+  /** Expanded width in px, dragged via SidebarResizeHandle. */
+  width: number;
+  setWidth: (width: number) => void;
+  resetWidth: () => void;
+  widthRange: { min: number; max: number };
+  /** True while the width is being dragged, so the width transition is paused. */
+  resizing: boolean;
+  setResizing: (resizing: boolean) => void;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
@@ -99,9 +110,27 @@ function SidebarProvider({
 
   const state = open ? "expanded" : "collapsed";
 
+  const { width, setWidth, reset: resetWidth, min, max } = usePanelWidth(SIDEBAR_WIDTH_STORAGE_KEY, SIDEBAR_WIDTH_PX);
+  const widthRange = React.useMemo(() => ({ min, max }), [min, max]);
+  const [resizing, setResizing] = React.useState(false);
+
   const contextValue = React.useMemo<SidebarContextProps>(
-    () => ({ state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar],
+    () => ({
+      state,
+      open,
+      setOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+      width,
+      setWidth,
+      resetWidth,
+      widthRange,
+      resizing,
+      setResizing,
+    }),
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, width, setWidth, resetWidth, widthRange, resizing],
   );
 
   return (
@@ -109,9 +138,10 @@ function SidebarProvider({
       <TooltipProvider delayDuration={0}>
         <div
           data-slot="sidebar-wrapper"
+          data-resizing={resizing || undefined}
           style={
             {
-              "--sidebar-width": SIDEBAR_WIDTH,
+              "--sidebar-width": `${width}px`,
               "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
               ...style,
             } as React.CSSProperties
@@ -138,7 +168,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { isMobile, state, openMobile, setOpenMobile, resizing } = useSidebar();
 
   if (collapsible === "none") {
     return (
@@ -187,6 +217,7 @@ function Sidebar({
         data-slot="sidebar-gap"
         className={cn(
           "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
+          resizing && "transition-none",
           "group-data-[collapsible=offcanvas]:w-0",
           "group-data-[side=right]:rotate-180",
           variant === "floating" || variant === "inset"
@@ -198,6 +229,7 @@ function Sidebar({
         data-slot="sidebar-container"
         className={cn(
           "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
+          resizing && "transition-none",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -269,6 +301,26 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
         "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
         className,
       )}
+      {...props}
+    />
+  );
+}
+
+/** Drag strip on the sidebar's outer edge; only shown while expanded on desktop. */
+function SidebarResizeHandle({ className, ...props }: Partial<React.ComponentProps<typeof ResizeHandle>>) {
+  const { state, isMobile, width, setWidth, resetWidth, widthRange, setResizing } = useSidebar();
+  if (isMobile || state !== "expanded") return null;
+  return (
+    <ResizeHandle
+      edge="right"
+      value={width}
+      min={widthRange.min}
+      max={widthRange.max}
+      onChange={setWidth}
+      onReset={resetWidth}
+      onDraggingChange={setResizing}
+      label="Resize sidebar"
+      className={cn("group-data-[side=right]:-left-1 group-data-[side=right]:right-auto", className)}
       {...props}
     />
   );
@@ -580,6 +632,7 @@ export {
   SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
+  SidebarResizeHandle,
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,

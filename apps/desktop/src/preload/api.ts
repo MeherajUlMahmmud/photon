@@ -6,6 +6,8 @@ export type WorkspaceInfo = {
   last_opened_at: string;
 };
 
+export type DirEntry = { name: string; kind: "dir" | "file" };
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -119,6 +121,8 @@ export type PhotonApi = {
   listWorkspaces: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo[]>>;
   openWorkspace: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo | null>>;
   getActiveWorkspace: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo | null>>;
+  /** Lists one directory inside a workspace. `relPath` is relative to the workspace root; "" is the root. */
+  listWorkspaceDir: (tokens: Tokens, workspaceId: string, relPath: string) => Promise<WithTokens<DirEntry[]>>;
   updateProfile: (tokens: Tokens, input: { first_name: string; last_name: string }) => Promise<WithTokens<AuthUser>>;
   changePassword: (
     tokens: Tokens,

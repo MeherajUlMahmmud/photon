@@ -4,8 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { InputField, PasswordField } from "@/components/form-fields";
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -40,24 +39,42 @@ export function RegisterPage() {
 
       <form className="flex flex-col gap-5" onSubmit={(e) => void onSubmit(e)}>
         <div className="grid grid-cols-2 gap-3">
-          <div className="grid gap-2">
-            <Label htmlFor="first">First name</Label>
-            <Input id="first" value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" autoFocus />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="last">Last name</Label>
-            <Input id="last" value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" />
-          </div>
+          <InputField
+            name="first_name"
+            label="First name"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            autoComplete="given-name"
+            autoFocus
+            required
+          />
+          <InputField
+            name="last_name"
+            label="Last name"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            autoComplete="family-name"
+          />
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} required />
-          <p className="text-small text-slate">At least 8 characters, with an uppercase letter, a lowercase letter and a digit.</p>
-        </div>
+        <InputField
+          name="email"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          required
+        />
+        <PasswordField
+          name="password"
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
+          minLength={8}
+          description="At least 8 characters, with an uppercase letter, a lowercase letter and a digit."
+          required
+        />
         {error && (
           <Alert variant="problem">
             <AlertDescription>{error}</AlertDescription>

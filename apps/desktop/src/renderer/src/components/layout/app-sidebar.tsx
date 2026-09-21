@@ -1,19 +1,25 @@
 import * as React from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, matchPath, useLocation, useNavigate } from "react-router-dom";
 import {
+  Broom,
   CaretUpDown,
   ChatCircleText,
+  DotsThree,
   FolderOpen,
   GearSix,
   Lifebuoy,
+  PencilSimple,
   Plus,
   SignOut,
+  Trash,
   User,
-  X,
 } from "@phosphor-icons/react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { useChats } from "@/hooks/use-chats";
+import { useAsync } from "@/hooks/use-async";
+import { useChats, type Chat } from "@/hooks/use-chats";
+import { useToast } from "@/hooks/use-toast";
+import { errorMessage } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,16 +33,29 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
+  SidebarResizeHandle,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import {
+  ConfirmDialog,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { InputField } from "@/components/form-fields";
 
 type TabId = "chat" | "space";
 
@@ -46,70 +65,222 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 ];
 
 /** Which tab a route belongs to; settings and help belong to neither. */
-function tabForPath(pathname: string): TabId | undefined {
-  if (pathname === "/") return "space";
+function tabForPath(pathname: string, chatSpace: (id: string) => string | undefined): TabId | undefined {
+  if (pathname === "/" || pathname.startsWith("/space")) return "space";
+  const m = matchPath("/chat/:chatId", pathname);
+  if (m?.params.chatId) return chatSpace(m.params.chatId) ? "space" : "chat";
   if (pathname.startsWith("/chat")) return "chat";
   return undefined;
 }
 
-/** The Chat tab: a new-chat button and every saved chat, newest first. */
-function ChatList({ pathname }: { pathname: string }) {
-  const { chats, remove } = useChats();
-  const navigate = useNavigate();
-  const isNew = pathname === "/chat";
+function RenameDialog({
+  open,
+  onOpenChange,
+  chat,
+  onRename,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  chat: Chat;
+  onRename: (title: string) => void;
+}) {
+  const [title, setTitle] = React.useState(chat.title);
+  // Start from the current title each time the dialog opens.
+  React.useEffect(() => {
+    if (open) setTitle(chat.title);
+  }, [open, chat.title]);
 
-  function onRemove(id: string) {
-    remove(id);
-    if (pathname === `/chat/${id}`) navigate("/chat", { replace: true });
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form
+          className="grid gap-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onRename(title);
+            onOpenChange(false);
+          }}
+        >
+          <div className="grid gap-2">
+            <DialogTitle>Rename chat</DialogTitle>
+            <DialogDescription>Leave it empty to go back to naming it after the first message.</DialogDescription>
+          </div>
+          <InputField name="chat_title" label="Title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit">Save</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ChatRow({ chat, pathname, onRemove }: { chat: Chat; pathname: string; onRemove: (id: string) => void }) {
+  const { clear, rename } = useChats();
+  const { isMobile } = useSidebar();
+  const isActive = pathname === `/chat/${chat.id}`;
+  const [renaming, setRenaming] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={isActive} tooltip={chat.title}>
+        <Link to={`/chat/${chat.id}`}>
+          <ChatCircleText weight={isActive ? "fill" : "bold"} className="hidden group-data-[collapsible=icon]:block" />
+          <span className="truncate">{chat.title}</span>
+        </Link>
+      </SidebarMenuButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuAction showOnHover aria-label={`Actions for ${chat.title}`} className="data-[state=open]:opacity-100">
+            <DotsThree weight="bold" />
+          </SidebarMenuAction>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side={isMobile ? "bottom" : "right"} align="start" className="w-44">
+          <DropdownMenuItem onSelect={() => setRenaming(true)}>
+            <PencilSimple weight="bold" />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => clear(chat.id)} disabled={!chat.turns.length}>
+            <Broom weight="bold" />
+            Clear messages
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={() => setConfirming(true)}>
+            <Trash weight="bold" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <RenameDialog open={renaming} onOpenChange={setRenaming} chat={chat} onRename={(t) => rename(chat.id, t)} />
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Delete this chat?"
+        description={
+          <>
+            <span className="text-foreground">{chat.title}</span> and its{" "}
+            {chat.turns.length === 1 ? "message" : `${chat.turns.length} messages`} will be gone. This cannot be undone.
+          </>
+        }
+        onConfirm={() => onRemove(chat.id)}
+      />
+    </SidebarMenuItem>
+  );
+}
+
+function NewChatRow({ to, active }: { to: string; active: boolean }) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={active} tooltip="New chat">
+        <Link to={to}>
+          <Plus weight="bold" />
+          <span>New chat</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+/** Picks a folder, makes it the active space and opens a fresh chat in it. */
+function NewSpaceRow({ onOpened }: { onOpened: () => void }) {
+  const { call } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const [busy, setBusy] = React.useState(false);
+
+  async function pick() {
+    setBusy(true);
+    try {
+      const ws = await call((t) => window.photon.openWorkspace(t));
+      if (!ws) return;
+      toast(`Now working in ${ws.name}`);
+      onOpened();
+      navigate("/space/chat");
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
+    <SidebarMenuItem>
+      <SidebarMenuButton tooltip="New space" onClick={() => void pick()} disabled={busy}>
+        <Plus weight="bold" />
+        <span>New space</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+/** Deletes a chat and leaves its page if it is open. */
+function useRemoveChat(pathname: string, fallback: string) {
+  const { remove } = useChats();
+  const navigate = useNavigate();
+  return (id: string) => {
+    remove(id);
+    if (pathname === `/chat/${id}`) navigate(fallback, { replace: true });
+  };
+}
+
+/** The Chat tab: a new-chat button and every free-standing chat, newest first. */
+function ChatList({ pathname }: { pathname: string }) {
+  const { chats } = useChats();
+  const onRemove = useRemoveChat(pathname, "/chat");
+  return (
     <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton asChild isActive={isNew} tooltip="New chat">
-          <Link to="/chat">
-            <Plus weight="bold" />
-            <span>New chat</span>
-          </Link>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-      {chats.map((chat) => {
-        const isActive = pathname === `/chat/${chat.id}`;
-        return (
-          <SidebarMenuItem key={chat.id}>
-            <SidebarMenuButton asChild isActive={isActive} tooltip={chat.title}>
-              <Link to={`/chat/${chat.id}`}>
-                <ChatCircleText
-                  weight={isActive ? "fill" : "bold"}
-                  className="hidden group-data-[collapsible=icon]:block"
-                />
-                <span className="truncate">{chat.title}</span>
-              </Link>
-            </SidebarMenuButton>
-            <SidebarMenuAction showOnHover aria-label={`Delete ${chat.title}`} onClick={() => onRemove(chat.id)}>
-              <X weight="bold" />
-            </SidebarMenuAction>
-          </SidebarMenuItem>
-        );
-      })}
+      <NewChatRow to="/chat" active={pathname === "/chat"} />
+      {chats
+        .filter((c) => !c.spaceId)
+        .map((chat) => (
+          <ChatRow key={chat.id} chat={chat} pathname={pathname} onRemove={onRemove} />
+        ))}
     </SidebarMenu>
   );
 }
 
-/** The Space tab: the workspace and, later, what lives in it. */
+/** The Space tab: a new-space button, then each workspace with the chats that run in it. */
 function SpaceList({ pathname }: { pathname: string }) {
-  const isActive = pathname === "/";
+  const { call, user } = useAuth();
+  const { chats } = useChats();
+  const workspaces = useAsync(() => call((t) => window.photon.listWorkspaces(t)), [user?.id]);
+  const onRemove = useRemoveChat(pathname, "/space/chat");
+
   return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton asChild isActive={isActive} tooltip="Workspace">
-          <Link to="/">
-            <FolderOpen weight={isActive ? "fill" : "bold"} />
-            <span>Workspace</span>
-          </Link>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
+    <>
+      <SidebarMenu>
+        <NewSpaceRow onOpened={workspaces.reload} />
+      </SidebarMenu>
+      {workspaces.data?.map((ws) => {
+        const own = chats.filter((c) => c.spaceId === ws.id);
+        const newActive = pathname === `/space/${ws.id}/chat`;
+        return (
+          <SidebarGroup key={ws.id} className="p-0 pt-2 group-data-[collapsible=icon]:hidden">
+            <SidebarGroupLabel className="h-6 gap-1.5 px-2 font-mono text-small" title={ws.root_path}>
+              <FolderOpen weight="bold" className="size-3.5 shrink-0" />
+              <span className="truncate">{ws.name}</span>
+            </SidebarGroupLabel>
+            <SidebarGroupAction asChild className="top-2.5 right-1" title={`New chat in ${ws.name}`}>
+              <Link to={`/space/${ws.id}/chat`} aria-label={`New chat in ${ws.name}`} aria-current={newActive ? "page" : undefined}>
+                <Plus weight="bold" />
+              </Link>
+            </SidebarGroupAction>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {own.map((chat) => (
+                  <ChatRow key={chat.id} chat={chat} pathname={pathname} onRemove={onRemove} />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        );
+      })}
+    </>
   );
 }
 
@@ -182,15 +353,16 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const { get } = useChats();
   // The active tab follows the route; on settings or help it keeps the last pick.
-  const routeTab = tabForPath(location.pathname);
+  const routeTab = tabForPath(location.pathname, (id) => get(id)?.spaceId);
   const [pickedTab, setPickedTab] = React.useState<TabId>(routeTab ?? "chat");
   const activeTab = routeTab ?? pickedTab;
 
   const onTabChange = (value: string) => {
     const tab = value as TabId;
     setPickedTab(tab);
-    navigate(tab === "chat" ? "/chat" : "/");
+    navigate(tab === "chat" ? "/chat" : "/space/chat");
   };
 
   return (
@@ -228,7 +400,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-      <SidebarRail />
+      <SidebarResizeHandle />
     </Sidebar>
   );
 }

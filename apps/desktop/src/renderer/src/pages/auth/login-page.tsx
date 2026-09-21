@@ -4,8 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { InputField, PasswordField } from "@/components/form-fields";
 
 export function LoginPage() {
   const { login, hasUsers } = useAuth();
@@ -39,14 +38,24 @@ export function LoginPage() {
       <p className="mt-2 mb-8 text-body text-slate">Your folders, keys and history are tied to this account.</p>
 
       <form className="flex flex-col gap-5" onSubmit={(e) => void onSubmit(e)}>
-        <div className="grid gap-2">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus required />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
-        </div>
+        <InputField
+          name="email"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          autoFocus
+          required
+        />
+        <PasswordField
+          name="password"
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          required
+        />
         {error && (
           <Alert variant="problem">
             <AlertDescription>{error}</AlertDescription>
