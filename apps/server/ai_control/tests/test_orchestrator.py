@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from ai_control.llm.exceptions import AiUnavailableError
 from ai_control.llm.orchestrator import LLMOrchestrator
-from ai_control.llm.providers.base import CompletionResult
+from ai_control.llm.providers.base import CompletionResult, ToolCall
 from ai_control.models import LlmApiCallModel, LlmProviderModel
 from user_control.models import UserModel
 from user_control.services import SecretService
@@ -166,3 +166,61 @@ class StreamCompletionTests(OrchestratorTestsBase):
         events = list(LLMOrchestrator.stream_completion(user=self.user, messages=MESSAGES))
         self.assertEqual([e['type'] for e in events], ['error'])
         self.assertIn('No API key saved', events[0]['message'])
+
+
+class ToolPassThroughTests(OrchestratorTestsBase):
+    TOOLS = [{'name': 'ls', 'description': 'List', 'input_schema': {'type': 'object'}}]
+
+    @mock.patch('ai_control.llm.providers.anthropic_provider.AnthropicLLMProvider.complete')
+    def test_tools_passed_and_tool_only_reply_is_not_empty(self, complete):
+        complete.return_value = CompletionResult(
+            content=None, usage={'input_tokens': 1, 'output_tokens': 1},
+            tool_calls=[ToolCall(id='t1', name='ls', input={'path': '.'})], stop_reason='tool_use', raw_stop_reason='tool_use',
+        )
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+
+        outcome = LLMOrchestrator.run_completion(user=self.user, messages=MESSAGES, tools=self.TOOLS)
+
+        self.assertEqual(outcome.content, '')
+        self.assertEqual(outcome.stop_reason, 'tool_use')
+        self.assertEqual(outcome.tool_calls[0].name, 'ls')
+        self.assertEqual(complete.call_args.kwargs['tools'], self.TOOLS)
+        call = LlmApiCallModel.objects.get(id=outcome.call_id)
+        self.assertEqual(call.response_json['tool_calls'][0]['id'], 't1')
+        self.assertEqual(call.prompt_metadata['tool_names'], ['ls'])
+
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.complete', return_value=_ok())
+    def test_provider_without_tool_calling_is_skipped(self, complete):
+        LlmProviderModel.objects.filter(provider='anthropic').update(capabilities=['chat'])
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+        SecretService.set_api_key(self.user, 'openai', 'sk-o')
+
+        outcome = LLMOrchestrator.run_completion(user=self.user, messages=MESSAGES, tools=self.TOOLS)
+
+        self.assertEqual(outcome.provider, 'openai')
+        self.assertEqual(LlmApiCallModel.objects.filter(provider='anthropic').count(), 0)
+
+    def test_all_lack_tool_calling_gives_clear_error(self):
+        LlmProviderModel.objects.update(capabilities=['chat'])
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+        with self.assertRaises(AiUnavailableError) as ctx:
+            LLMOrchestrator.run_completion(user=self.user, messages=MESSAGES, tools=self.TOOLS)
+        self.assertIn('support tool calling', str(ctx.exception))
+
+    @mock.patch('ai_control.llm.providers.anthropic_provider.AnthropicLLMProvider.complete_stream')
+    def test_stream_emits_tool_call_events_and_start_for_tool_only_reply(self, complete_stream):
+        def gen(*args, **kwargs):
+            return CompletionResult(
+                content=None, usage={}, tool_calls=[ToolCall(id='t9', name='bash', input={'command': 'ls'})],
+                stop_reason='tool_use', raw_stop_reason='tool_use',
+            )
+            yield  # noqa: unreachable - makes this a generator
+        complete_stream.side_effect = gen
+        SecretService.set_api_key(self.user, 'anthropic', 'sk-a')
+
+        events = list(LLMOrchestrator.stream_completion(user=self.user, messages=MESSAGES, tools=self.TOOLS))
+
+        self.assertEqual([e['type'] for e in events], ['start', 'tool_call', 'done'])
+        self.assertEqual(events[1], {'type': 'tool_call', 'call_id': 't9', 'name': 'bash', 'input': {'command': 'ls'}})
+        self.assertEqual(events[2]['stop_reason'], 'tool_use')
+        self.assertEqual(events[2]['tool_calls'][0]['id'], 't9')

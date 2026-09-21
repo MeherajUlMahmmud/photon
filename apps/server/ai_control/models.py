@@ -4,10 +4,15 @@ import uuid
 from django.db import models
 
 from ai_control.choices import (
+    AgentMessageRoleChoices,
+    AgentSessionStatusChoices,
+    AgentToolCallStatusChoices,
     LlmApiStyleChoices,
     LlmCallStatusChoices,
     LlmCapabilityChoices,
     LlmProviderChoices,
+    LlmToolExecutorChoices,
+    LlmToolRiskChoices,
 )
 from common.models import BaseModel
 
@@ -150,3 +155,150 @@ class LlmApiCallModel(BaseModel):
 
     def __str__(self):
         return f"{self.provider}/{self.model} {self.status} ({self.created_at:%Y-%m-%d %H:%M})"
+
+
+class LlmToolModel(BaseModel):
+    """
+    Registry of tools the agent may ask for (seeded by
+    ``4_create_default_llm_tools``). The server sends ``name``, ``description``
+    and ``input_schema`` to the model; the client executes a call by ``name``,
+    so names must match the desktop's tool implementations exactly.
+    """
+
+    name = models.SlugField(max_length=60, unique=True, help_text="Tool id the model calls and the client dispatches on.")
+    label = models.CharField(max_length=120, help_text="Human-friendly label shown in the app.")
+    description = models.TextField(help_text="Sent to the model. Say what it does and when to use it.")
+    input_schema = models.JSONField(default=dict, help_text="JSON Schema (type: object) for the tool's arguments.")
+    risk = models.CharField(max_length=20, choices=LlmToolRiskChoices.choices, default=LlmToolRiskChoices.READ)
+    executor = models.CharField(
+        max_length=20, choices=LlmToolExecutorChoices.choices, default=LlmToolExecutorChoices.CLIENT,
+    )
+    priority = models.PositiveIntegerField(default=100, db_index=True, help_text="Order tools are listed to the model.")
+    task_keys = models.JSONField(
+        blank=True, default=list,
+        help_text="Task keys this tool is offered for, e.g. ['agent']. Empty = every task.",
+    )
+
+    class Meta:
+        db_table = "ai_control_llm_tools"
+        verbose_name = "LLM Tool"
+        verbose_name_plural = "LLM Tools"
+        ordering = ["priority", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.risk})"
+
+    def offered_for(self, task_key: str) -> bool:
+        return not self.task_keys or task_key in self.task_keys
+
+    def schema_for_model(self) -> dict:
+        return {"name": self.name, "description": self.description, "input_schema": self.input_schema or {"type": "object"}}
+
+
+class AgentSessionModel(BaseModel):
+    """
+    One agent conversation. The server owns the transcript and drives the
+    model; the client runs tools and posts results back one step at a time.
+    """
+
+    user = models.ForeignKey('user_control.UserModel', on_delete=models.CASCADE, related_name='agent_sessions')
+    workspace = models.ForeignKey(
+        'workspace_control.WorkspaceModel', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='agent_sessions',
+    )
+    title = models.CharField(max_length=255, blank=True, default="")
+    provider = models.CharField(max_length=30, blank=True, default="", help_text="Pinned provider slug, or empty for auto.")
+    model = models.CharField(max_length=120, blank=True, default="", help_text="Pinned model id, or empty for the provider default.")
+    task_key = models.CharField(max_length=80, default="agent", db_index=True)
+    system_prompt = models.TextField(blank=True, default="")
+    device = models.JSONField(
+        default=dict, blank=True,
+        help_text="Client machine as reported at creation: os, os_version, arch, shell, locale, app_version.",
+    )
+    status = models.CharField(
+        max_length=20, choices=AgentSessionStatusChoices.choices,
+        default=AgentSessionStatusChoices.IDLE, db_index=True,
+    )
+    running_since = models.DateTimeField(null=True, blank=True)
+    step_count = models.PositiveIntegerField(default=0, help_text="Model calls made so far.")
+    max_steps = models.PositiveIntegerField(default=50, help_text="Model calls allowed before the session stops.")
+    last_error = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "ai_control_agent_sessions"
+        verbose_name = "Agent Session"
+        verbose_name_plural = "Agent Sessions"
+        ordering = ["-updated_at"]
+        indexes = [models.Index(fields=["user", "updated_at"], name="agent_session_user_upd_idx")]
+
+    def __str__(self):
+        return f"{self.title or self.id} [{self.status}]"
+
+
+class AgentMessageModel(BaseModel):
+    """
+    A user or assistant turn. Tool calls issued by an assistant turn live in
+    ``AgentToolCallModel`` (with their results), not here, so the transcript
+    has one source of truth per call.
+    """
+
+    session = models.ForeignKey(AgentSessionModel, on_delete=models.CASCADE, related_name='messages')
+    seq = models.PositiveIntegerField(help_text="Position in the session transcript, from 0.")
+    role = models.CharField(max_length=20, choices=AgentMessageRoleChoices.choices)
+    content = models.TextField(blank=True, default="")
+    stop_reason = models.CharField(max_length=40, blank=True, default="")
+    is_partial = models.BooleanField(default=False, help_text="True when the stream was cut before the model finished.")
+    llm_call = models.ForeignKey(LlmApiCallModel, on_delete=models.SET_NULL, null=True, blank=True, related_name='agent_messages')
+
+    class Meta:
+        db_table = "ai_control_agent_messages"
+        verbose_name = "Agent Message"
+        verbose_name_plural = "Agent Messages"
+        ordering = ["seq"]
+        constraints = [models.UniqueConstraint(fields=["session", "seq"], name="agent_message_unique_seq")]
+
+    def __str__(self):
+        return f"#{self.seq} {self.role}"
+
+
+class AgentToolCallModel(BaseModel):
+    """One tool invocation the model requested, and what the client reported back."""
+
+    session = models.ForeignKey(AgentSessionModel, on_delete=models.CASCADE, related_name='tool_calls')
+    message = models.ForeignKey(AgentMessageModel, on_delete=models.CASCADE, related_name='tool_calls')
+    tool = models.ForeignKey(
+        LlmToolModel, on_delete=models.SET_NULL, null=True, blank=True, related_name='calls',
+        help_text="Null when the model asked for a name that is not registered.",
+    )
+    call_id = models.CharField(max_length=120, help_text="Provider-issued id; results are matched on it.")
+    name = models.CharField(max_length=60, db_index=True)
+    input = models.JSONField(default=dict)
+    risk = models.CharField(max_length=20, choices=LlmToolRiskChoices.choices, default=LlmToolRiskChoices.READ)
+    seq_in_message = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=20, choices=AgentToolCallStatusChoices.choices,
+        default=AgentToolCallStatusChoices.PENDING, db_index=True,
+    )
+    output = models.TextField(blank=True, default="")
+    error = models.TextField(blank=True, default="")
+    duration_ms = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "ai_control_agent_tool_calls"
+        verbose_name = "Agent Tool Call"
+        verbose_name_plural = "Agent Tool Calls"
+        ordering = ["message__seq", "seq_in_message"]
+        constraints = [models.UniqueConstraint(fields=["session", "call_id"], name="agent_tool_call_unique_id")]
+
+    def __str__(self):
+        return f"{self.name} [{self.status}]"
+
+    @property
+    def is_error(self) -> bool:
+        return self.status != AgentToolCallStatusChoices.COMPLETED
+
+    def result_content(self) -> str:
+        """Text fed back to the model for this call."""
+        if self.status == AgentToolCallStatusChoices.COMPLETED:
+            return self.output
+        return self.error or self.get_status_display()

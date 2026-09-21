@@ -13,6 +13,7 @@ python3 -m venv .venv
 cp .env.example .env            # optional; defaults work for local dev
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py 3_create_default_llm_providers   # seeds anthropic, openai, nvidia, kimi
+.venv/bin/python manage.py 4_create_default_llm_tools       # seeds ls, cs, read_file, write_file, bash
 .venv/bin/python manage.py createsuperuser   # optional, for /admin/
 ```
 
@@ -70,6 +71,14 @@ Every response is the envelope `{status, status_code, message, data?, errors?, m
 | POST | `/api/workspace/open/` | `{root_path}` | upsert by path, marks it active |
 | GET | `/api/ai/provider/list/` | | active providers in priority order, each with `has_key` for this user and `model_ids` |
 | POST | `/api/ai/completion/create/` | `{messages:[{role,content}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer |
+| POST | `/api/ai/completion/stream/` | same body | NDJSON events `start`, `delta`, `done` / `error` |
+| GET | `/api/ai/tool/list/` | | active tools the agent may call: `name`, `description`, `input_schema`, `risk` |
+| POST | `/api/ai/agent/session/create/` | `{workspace_id?, provider?, model?, task_key?, device?}` | `201` with the session; `device` is `{os, os_version?, arch?, shell?, locale?, app_version?}` |
+| POST | `/api/ai/agent/session/<uuid>/step/stream/` | `{content}` or `{tool_results:[{call_id, ok, output?, error?}]}` | NDJSON events; see *Agent loop* |
+| POST | `/api/ai/agent/session/<uuid>/step/create/` | same body | final `done` event as JSON plus `content` |
+| POST | `/api/ai/agent/session/<uuid>/cancel/` | | drops pending tool calls, session back to `idle` |
+| GET | `/api/ai/agent/session/list/` | | paginated; filters `status`, `task_key`, `workspace` |
+| GET | `/api/ai/agent/session/<uuid>/details/` | | messages in order, each with its `tool_calls`, plus `pending_tool_calls` |
 | GET | `/api/ai/call/list/` | | paginated; filters `provider`, `model`, `task_key`, `status`, `trace_id`, `created_at_after/_before` |
 | GET | `/api/ai/call/<uuid>/details/` | | includes stored prompt/response text |
 
@@ -86,6 +95,18 @@ Every response is the envelope `{status, status_code, message, data?, errors?, m
 Providers are rows in `LlmProviderModel` (admin-editable; `3_create_default_llm_providers --update` refreshes seeded defaults). Each has an `api_style` — `anthropic` or `openai_compatible` — which selects the client in `ai_control/llm/providers/`; NVIDIA NIM and Kimi (Moonshot) both speak the OpenAI shape, so adding a similar vendor is a new row plus a `LlmProviderChoices` entry.
 
 `LLMOrchestrator.run_completion(user, messages, provider=None, model=None)` walks active providers by `priority`, skips ones the user has no `UserSecretModel` key for, and falls through to the next on failure. A pinned `provider` is tried first; pinning `model` too makes it strict (no fallback, since model ids are vendor-specific). Every attempt is recorded in `LlmApiCallModel` with tokens, latency and cost (when the provider row has prices); prompt/response text is stored truncated to 20k chars. Decrypted keys are used in memory for the call and never written anywhere.
+
+## Agent loop
+
+The server is the agent's brain; the desktop is its hands. Tools are rows in `LlmToolModel` (`4_create_default_llm_tools --update` refreshes them) and their names match the desktop's implementations in `packages/tools`. A session (`AgentSessionModel`) owns the transcript; one user turn is several HTTP *steps*:
+
+1. `POST .../step/stream/ {content}` — the server sends the transcript plus tool schemas to the model and streams `start`, `delta`, `tool_call` and finally `done`. `done.stop_reason` is `end_turn`, `tool_use` (with `pending_tool_calls: [{call_id, name, input, risk}]`) or `max_steps`.
+2. The client runs every pending call locally (asking the user first for `write`/`shell`/`destructive` risk) and posts `POST .../step/stream/ {tool_results: [...]}` — one entry per pending `call_id`, `ok: false` with `error: "denied"` when the user refused. Partial, unknown or duplicate ids are a `400`.
+3. Repeat until `end_turn`.
+
+The desktop sends `device` when it creates the session (`os` is Node's `process.platform`: `darwin`, `linux` or `win32`). It is stored on the session and turned into an *Environment* paragraph of the system prompt — OS, version, arch, shell and locale plus per-OS guidance (BSD vs GNU userland, PowerShell vs POSIX, path separators) — so commands, paths and instructions come back shaped for that machine. Without it the prompt has no environment section and the model falls back to POSIX assumptions.
+
+Status machine: `idle → running → awaiting_tools | idle | error`. A step on a `running` session is `409` unless it has been running for over 10 minutes (abandoned worker), and a new `content` while `awaiting_tools` cancels the pending calls first so the transcript stays valid. Each step is one model call recorded in `LlmApiCallModel` (`trace_id` = session id); assistant turns and tool calls are stored in `AgentMessageModel` / `AgentToolCallModel`, and the transcript is rebuilt from them on every step (tool output clipped to 30k chars for the model). Providers without the `tool_calling` capability are skipped when tools are attached.
 
 ## Test
 
