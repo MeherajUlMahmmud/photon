@@ -11,6 +11,7 @@ import { ChatPage } from "@/pages/chat-page";
 import { SettingsLayout } from "@/pages/settings/settings-layout";
 import { GeneralSettingsPage } from "@/pages/settings/general-page";
 import { ProvidersSettingsPage } from "@/pages/settings/providers-page";
+import { SkillsSettingsPage } from "@/pages/settings/skills-page";
 import { AccountSettingsPage } from "@/pages/settings/account-page";
 import { SecuritySettingsPage } from "@/pages/settings/security-page";
 import { HelpPage } from "@/pages/help-page";
@@ -45,6 +46,7 @@ export const router = createHashRouter([
             children: [
               { index: true, element: <GeneralSettingsPage /> },
               { path: "providers", element: <ProvidersSettingsPage /> },
+              { path: "skills", element: <SkillsSettingsPage /> },
               { path: "account", element: <AccountSettingsPage /> },
               { path: "security", element: <SecuritySettingsPage /> },
             ],

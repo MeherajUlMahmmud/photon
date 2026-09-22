@@ -6,6 +6,7 @@ import { Page } from "@/components/layout/page";
 const SECTIONS = [
   { to: "/settings", label: "Model", end: true },
   { to: "/settings/providers", label: "API keys" },
+  { to: "/settings/skills", label: "Skills" },
   { to: "/settings/account", label: "Account" },
   { to: "/settings/security", label: "Password" },
 ];
