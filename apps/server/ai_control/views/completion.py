@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from ai_control.llm.exceptions import AiUnavailableError
 from ai_control.llm.orchestrator import LLMOrchestrator
 from ai_control.serializers.completion import CompletionRequestSerializer, CompletionResponseSerializer
+from ai_control.services import SkillNotFound
 from common.api_response import ApiResponse
 from common.rate_limiters import api_rate_limit
 from common.renderers import NdjsonStreamViewMixin
@@ -35,9 +36,13 @@ class CreateCompletionAPIView(APIView):
             request.user.id, data.get('provider') or '-', data['task_key'],
         )
         try:
+            messages = serializer.messages_for(request.user)
+        except SkillNotFound as e:
+            return ApiResponse.not_found(message=str(e))
+        try:
             outcome = LLMOrchestrator.run_completion(
                 user=request.user,
-                messages=[dict(m) for m in data['messages']],
+                messages=messages,
                 task_key=data['task_key'],
                 provider=data.get('provider') or None,
                 model=data.get('model') or None,
@@ -72,9 +77,13 @@ class CreateCompletionStreamAPIView(NdjsonStreamViewMixin, APIView):
             '[CreateCompletionStreamAPIView] Stream requested - user_id=%s, provider=%s, task_key=%s',
             request.user.id, data.get('provider') or '-', data['task_key'],
         )
+        try:
+            messages = serializer.messages_for(request.user)
+        except SkillNotFound as e:
+            return ApiResponse.not_found(message=str(e))
         events = LLMOrchestrator.stream_completion(
             user=request.user,
-            messages=[dict(m) for m in data['messages']],
+            messages=messages,
             task_key=data['task_key'],
             provider=data.get('provider') or None,
             model=data.get('model') or None,

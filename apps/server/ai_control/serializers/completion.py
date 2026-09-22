@@ -1,16 +1,28 @@
 from rest_framework import serializers
 
 from ai_control.choices import LlmProviderChoices
+from ai_control.services.skill_service import SKILL_NAME_PATTERN, SkillService
 
 MESSAGE_ROLES = ('system', 'user', 'assistant')
 
 
 class CompletionMessageSerializer(serializers.Serializer):
+    """
+    One transcript line. A user message may name a ``skill``: the server then
+    sends the skill's instructions with ``content`` as its arguments, so the
+    client never has to hold or resend skill text itself.
+    """
     role = serializers.ChoiceField(choices=MESSAGE_ROLES)
     content = serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=200000)
+    skill = serializers.RegexField(SKILL_NAME_PATTERN, required=False, allow_blank=True, max_length=64)
 
     class Meta:
         ref_name = 'CompletionMessage'
+
+    def validate(self, attrs):
+        if attrs.get('skill') and attrs['role'] != 'user':
+            raise serializers.ValidationError({'skill': 'Only user messages can invoke a skill.'})
+        return attrs
 
 
 class CompletionRequestSerializer(serializers.Serializer):
@@ -38,6 +50,18 @@ class CompletionRequestSerializer(serializers.Serializer):
             if key in self.validated_data:
                 cfg[key] = self.validated_data[key]
         return cfg
+
+    def messages_for(self, user):
+        """
+        Provider-neutral messages with every ``skill`` reference expanded for
+        ``user``. Raises ``SkillNotFound`` when a named skill does not exist.
+        """
+        out = []
+        for m in self.validated_data['messages']:
+            skill = m.get('skill') or ''
+            content = SkillService.expand(user, skill, m['content']) if skill else m['content']
+            out.append({'role': m['role'], 'content': content})
+        return out
 
 
 class CompletionResponseSerializer(serializers.Serializer):

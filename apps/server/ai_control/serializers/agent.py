@@ -3,6 +3,7 @@ from rest_framework import serializers
 from ai_control.choices import LlmProviderChoices
 from ai_control.models import AgentMessageModel, AgentSessionModel, AgentToolCallModel
 from ai_control.services import ToolResultInput
+from ai_control.services.skill_service import SKILL_NAME_PATTERN
 from workspace_control.models import WorkspaceModel
 
 # Tool output is user-machine data; cap it so one result cannot blow up a row.
@@ -85,8 +86,11 @@ class AgentStepRequestSerializer(serializers.Serializer):
     Body of a step: exactly one of ``content`` (a new user message) or
     ``tool_results`` (answers to every pending tool call). An empty list is
     valid when the server rejected every call itself and nothing is pending.
+    ``skill`` names one of the caller's skills to invoke; ``content`` is then
+    the arguments after ``/<skill>`` and may be blank.
     """
-    content = serializers.CharField(required=False, allow_blank=False, trim_whitespace=False, max_length=200_000)
+    content = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False, max_length=200_000)
+    skill = serializers.RegexField(SKILL_NAME_PATTERN, required=False, allow_blank=True, max_length=64)
     tool_results = AgentToolResultSerializer(many=True, required=False, allow_empty=True)
 
     class Meta:
@@ -97,12 +101,16 @@ class AgentStepRequestSerializer(serializers.Serializer):
         has_results = 'tool_results' in attrs
         if has_content == has_results:
             raise serializers.ValidationError({'error': "Send exactly one of 'content' or 'tool_results'."})
+        if has_content and not attrs.get('skill') and not attrs['content'].strip():
+            raise serializers.ValidationError({'content': 'This field may not be blank.'})
+        if attrs.get('skill') and has_results:
+            raise serializers.ValidationError({'skill': "'skill' goes with 'content', not 'tool_results'."})
         return attrs
 
     def step_kwargs(self):
         data = self.validated_data
         if 'content' in data:
-            return {'content': data['content']}
+            return {'content': data['content'], 'skill': data.get('skill') or ''}
         return {
             'tool_results': [
                 ToolResultInput(
@@ -136,7 +144,7 @@ class AgentMessageModelSerializerMeta(serializers.ModelSerializer):
     class Meta:
         model = AgentMessageModel
         ref_name = 'AgentMessageModelMeta'
-        fields = ['id', 'seq', 'role', 'content', 'stop_reason', 'is_partial', 'llm_call', 'created_at']
+        fields = ['id', 'seq', 'role', 'content', 'skill', 'stop_reason', 'is_partial', 'llm_call', 'created_at']
         read_only_fields = fields
 
 

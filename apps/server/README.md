@@ -44,7 +44,7 @@ Then `pnpm dev` from the repo root for the desktop app.
 | `common` | `ApiResponse` envelope, `custom_exception_handler`, `BaseModel` (UUID pk, soft-delete flags, audit columns), `Custom*APIView`, pagination, `api_rate_limit`, `ping` |
 | `user_control` | `UserModel` (email login, lockout), `LoginAttemptModel`, `UserSettingModel`, `UserSecretModel`; auth, profile, settings and secrets endpoints |
 | `workspace_control` | `WorkspaceModel` — folders the desktop app has opened, per user |
-| `ai_control` | `LlmProviderModel` registry (endpoints + default models, no keys), `LlmApiCallModel` per-user call log, provider clients (`llm/providers/`), `LLMOrchestrator`, completion endpoint |
+| `ai_control` | `LlmProviderModel` registry (endpoints + default models, no keys), `LlmApiCallModel` per-user call log, provider clients (`llm/providers/`), `LLMOrchestrator`, completion endpoint, agent sessions, `SkillModel` (per-user `/slash` prompts) |
 
 ## API
 
@@ -70,12 +70,17 @@ Every response is the envelope `{status, status_code, message, data?, errors?, m
 | GET | `/api/workspace/active/` | | most recently opened |
 | POST | `/api/workspace/open/` | `{root_path}` | upsert by path, marks it active |
 | GET | `/api/ai/provider/list/` | | active providers in priority order, each with `has_key` for this user and `model_ids` |
-| POST | `/api/ai/completion/create/` | `{messages:[{role,content}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer |
+| POST | `/api/ai/completion/create/` | `{messages:[{role,content,skill?}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer; a user message with `skill` is expanded server-side (`404` for an unknown skill) |
 | POST | `/api/ai/completion/stream/` | same body | NDJSON events `start`, `delta`, `done` / `error` |
 | GET | `/api/ai/tool/list/` | | active tools the agent may call: `name`, `description`, `input_schema`, `risk` |
+| GET | `/api/ai/skill/list/` | | the caller's skills, by name: `id, name, description, content` |
+| POST | `/api/ai/skill/install/` | `{markdown, name?, replace?}` | `201`; parses front matter (`name`, `description`) or falls back to the first heading / paragraph; `400` on a duplicate unless `replace` |
+| GET | `/api/ai/skill/<name>/details/` | | |
+| PUT | `/api/ai/skill/<name>/update/` | `{markdown}` | a different `name` in the file renames it |
+| DELETE | `/api/ai/skill/<name>/delete/` | | |
 | POST | `/api/ai/agent/session/create/` | `{workspace_id?, workspace_path?, provider?, model?, task_key?, device?}` | `201` with the session; `device` is `{os, os_version?, arch?, shell?, locale?, app_version?}` |
 | POST | `/api/ai/agent/session/<uuid>/update/` | `{provider?, model?}` | re-pins the model for the next steps; transcript unchanged |
-| POST | `/api/ai/agent/session/<uuid>/step/stream/` | `{content}` or `{tool_results:[{call_id, ok, output?, error?}]}` | NDJSON events; see *Agent loop* |
+| POST | `/api/ai/agent/session/<uuid>/step/stream/` | `{content, skill?}` or `{tool_results:[{call_id, ok, output?, error?}]}` | NDJSON events; see *Agent loop*. With `skill`, `content` is the arguments (may be blank) |
 | POST | `/api/ai/agent/session/<uuid>/step/create/` | same body | final `done` event as JSON plus `content` |
 | POST | `/api/ai/agent/session/<uuid>/cancel/` | | drops pending tool calls, session back to `idle` |
 | GET | `/api/ai/agent/session/list/` | | paginated; filters `status`, `task_key`, `workspace` |
@@ -108,6 +113,12 @@ The server is the agent's brain; the desktop is its hands. Tools are rows in `Ll
 The desktop sends `workspace_path` (the folder it is working in, which becomes the root in the prompt and must match the client's sandbox root) and `device` when it creates the session (`os` is Node's `process.platform`: `darwin`, `linux` or `win32`). It is stored on the session and turned into an *Environment* paragraph of the system prompt — OS, version, arch, shell and locale plus per-OS guidance (BSD vs GNU userland, PowerShell vs POSIX, path separators) — so commands, paths and instructions come back shaped for that machine. Without it the prompt has no environment section and the model falls back to POSIX assumptions.
 
 Status machine: `idle → running → awaiting_tools | idle | error`. A step on a `running` session is `409` unless it has been running for over 10 minutes (abandoned worker), and a new `content` while `awaiting_tools` cancels the pending calls first so the transcript stays valid. Each step is one model call recorded in `LlmApiCallModel` (`trace_id` = session id); assistant turns and tool calls are stored in `AgentMessageModel` / `AgentToolCallModel`, and the transcript is rebuilt from them on every step (tool output clipped to 30k chars for the model). Providers without the `tool_calling` capability are skipped when tools are attached.
+
+## Skills
+
+A skill is a Markdown file the user pastes into Settings > Skills and invokes as `/<name> args` in the composer. `SkillModel` rows are per user (`name` unique per user; no seeding). `SkillService.parse` reads YAML-ish front matter (`name`, `description`; `key: value` lines only, folded/literal blocks supported) and strips it; without front matter the first `# Heading` (slugified) and first paragraph are used.
+
+Invocation is server-side so the client never holds skill text: an agent step with `{content, skill}` stores the user turn as `SkillService.render(skill, content)` — a framing line, the instructions inside `<skill name="…">…</skill>`, and the arguments either replacing `$ARGUMENTS` or appended after — with `AgentMessageModel.skill` recording the name and the session title kept as `/name args`. The completion endpoints do the same for any user message carrying `skill`, which is how plain (tool-less) chats re-send a skill turn on later requests. An unknown skill is `400` on a step (session untouched) and `404` on a completion.
 
 ## Test
 

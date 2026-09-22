@@ -34,6 +34,7 @@ from ai_control.choices import (
 from ai_control.llm.exceptions import AiControlError
 from ai_control.llm.orchestrator import LLMOrchestrator
 from ai_control.models import AgentMessageModel, AgentSessionModel, AgentToolCallModel, LlmApiCallModel, LlmToolModel
+from ai_control.services.skill_service import SkillNotFound, SkillService
 
 logger = logging.getLogger(__name__)
 
@@ -259,13 +260,20 @@ class AgentSessionService:
         *,
         content: Optional[str] = None,
         tool_results: Optional[Iterable[ToolResultInput]] = None,
+        skill: str = "",
     ) -> AgentSessionModel:
         """
         Validate and apply the step body, then mark the session ``running``.
         Runs in one short transaction so concurrent steps serialise on the row.
+        ``skill`` names one of the user's skills to splice into ``content``
+        (which is then the command's arguments, possibly empty).
         """
         if (content is None) == (tool_results is None):
             raise AgentStepRejected("Send exactly one of 'content' or 'tool_results'.")
+        if skill and content is None:
+            raise AgentStepRejected("'skill' goes with 'content', not 'tool_results'.")
+        if content is not None and not skill and not content.strip():
+            raise AgentStepRejected("'content' may not be blank.")
 
         with transaction.atomic():
             session = (
@@ -287,7 +295,7 @@ class AgentSessionService:
                     # The user moved on; the pending calls get a result anyway so
                     # the transcript stays valid for the provider.
                     cls._cancel_pending(session, reason="Cancelled: the user sent a new message before the tool ran")
-                cls._append_user(session, content)
+                cls._append_user(session, content, skill=skill)
             else:
                 if session.status != AgentSessionStatusChoices.AWAITING_TOOLS:
                     raise AgentStepRejected("This session is not waiting for tool results.")
@@ -307,13 +315,26 @@ class AgentSessionService:
         return (timezone.now() - session.running_since).total_seconds() > STALE_RUNNING_SECONDS
 
     @classmethod
-    def _append_user(cls, session: AgentSessionModel, content: str) -> AgentMessageModel:
+    def _append_user(cls, session: AgentSessionModel, content: str, *, skill: str = "") -> AgentMessageModel:
+        """
+        Store the user turn. With ``skill`` set, the stored content is the
+        rendered skill (instructions plus arguments), so the transcript the
+        model sees is rebuilt verbatim on every later step; the title keeps
+        the short ``/name args`` form.
+        """
+        shown = content
+        if skill:
+            shown = f"/{skill} {content.strip()}".strip()
+            try:
+                content = SkillService.expand(session.user, skill, content)
+            except SkillNotFound as e:
+                raise AgentStepRejected(str(e)) from e
         msg = AgentMessageModel.objects.create(
             session=session, seq=cls._next_seq(session), role=AgentMessageRoleChoices.USER,
-            content=content, created_by=session.user,
+            content=content, skill=skill, created_by=session.user,
         )
         if not session.title:
-            session.title = content.strip().splitlines()[0][:TITLE_MAX_CHARS] if content.strip() else ""
+            session.title = shown.strip().splitlines()[0][:TITLE_MAX_CHARS] if shown.strip() else ""
             session.save(update_fields=["title"])
         return msg
 
