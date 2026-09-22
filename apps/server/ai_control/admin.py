@@ -7,6 +7,7 @@ from ai_control.models import (
     LlmApiCallModel,
     LlmProviderModel,
     LlmToolModel,
+    SkillModel,
 )
 
 
@@ -52,6 +53,17 @@ class LlmToolModelAdmin(admin.ModelAdmin):
         ('Tool', {'fields': ('name', 'label', 'description', 'input_schema')}),
         ('Execution', {'fields': ('risk', 'executor', 'task_keys')}),
         ('Routing', {'fields': ('priority', 'is_active')}),
+        ('Audit', {'fields': ('id', 'created_at', 'updated_at')}),
+    )
+
+
+@admin.register(SkillModel)
+class SkillModelAdmin(admin.ModelAdmin):
+    list_display = ['name', 'user', 'description', 'updated_at']
+    search_fields = ['name', 'description', 'user__email']
+    readonly_fields = ['id', 'created_at', 'updated_at']
+    fieldsets = (
+        ('Skill', {'fields': ('user', 'name', 'description', 'content')}),
         ('Audit', {'fields': ('id', 'created_at', 'updated_at')}),
     )
 

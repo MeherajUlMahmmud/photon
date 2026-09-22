@@ -13,12 +13,24 @@ from ai_control.views.completion import CreateCompletionAPIView, CreateCompletio
 from ai_control.views.llm_api_call import GetLlmApiCallDetailsAPIView, GetLlmApiCallListAPIView
 from ai_control.views.llm_provider import GetLlmProviderListAPIView, TestLlmProviderAPIView
 from ai_control.views.llm_tool import GetLlmToolListAPIView
+from ai_control.views.skill import (
+    DeleteSkillAPIView,
+    GetSkillDetailsAPIView,
+    GetSkillListAPIView,
+    InstallSkillAPIView,
+    UpdateSkillAPIView,
+)
 from ai_control.views.transcription import CreateTranscriptionAPIView
 
 urlpatterns = [
     path('ai/provider/list/', GetLlmProviderListAPIView.as_view(), name='llm_provider_list'),
     path('ai/provider/<str:provider>/test/', TestLlmProviderAPIView.as_view(), name='llm_provider_test'),
     path('ai/tool/list/', GetLlmToolListAPIView.as_view(), name='llm_tool_list'),
+    path('ai/skill/list/', GetSkillListAPIView.as_view(), name='skill_list'),
+    path('ai/skill/install/', InstallSkillAPIView.as_view(), name='skill_install'),
+    path('ai/skill/<str:name>/details/', GetSkillDetailsAPIView.as_view(), name='skill_details'),
+    path('ai/skill/<str:name>/update/', UpdateSkillAPIView.as_view(), name='skill_update'),
+    path('ai/skill/<str:name>/delete/', DeleteSkillAPIView.as_view(), name='skill_delete'),
     path('ai/completion/create/', CreateCompletionAPIView.as_view(), name='completion_create'),
     path('ai/completion/stream/', CreateCompletionStreamAPIView.as_view(), name='completion_stream'),
     path('ai/agent/session/create/', CreateAgentSessionAPIView.as_view(), name='agent_session_create'),

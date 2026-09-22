@@ -195,6 +195,32 @@ class LlmToolModel(BaseModel):
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema or {"type": "object"}}
 
 
+class SkillModel(BaseModel):
+    """
+    A reusable prompt the user installs by pasting a Markdown file and invokes
+    by typing ``/<name>`` in the composer. The file's YAML front matter gives
+    ``name`` and ``description``; the rest is ``content``, which the server
+    splices into the user message when the skill is invoked
+    (``SkillService.render``). ``$ARGUMENTS`` in the content is replaced by
+    whatever the user typed after the command.
+    """
+
+    user = models.ForeignKey('user_control.UserModel', on_delete=models.CASCADE, related_name='skills')
+    name = models.SlugField(max_length=64, help_text="Slash command id, e.g. 'review' for /review.")
+    description = models.CharField(max_length=500, blank=True, default="", help_text="One line shown in the picker.")
+    content = models.TextField(help_text="Markdown instructions sent to the model; front matter stripped.")
+
+    class Meta:
+        db_table = "ai_control_skills"
+        verbose_name = "Skill"
+        verbose_name_plural = "Skills"
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["user", "name"], name="skill_unique_user_name")]
+
+    def __str__(self):
+        return f"/{self.name}"
+
+
 class AgentSessionModel(BaseModel):
     """
     One agent conversation. The server owns the transcript and drives the
@@ -250,6 +276,10 @@ class AgentMessageModel(BaseModel):
     seq = models.PositiveIntegerField(help_text="Position in the session transcript, from 0.")
     role = models.CharField(max_length=20, choices=AgentMessageRoleChoices.choices)
     content = models.TextField(blank=True, default="")
+    skill = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Name of the skill a user message invoked; its instructions are already spliced into content.",
+    )
     stop_reason = models.CharField(max_length=40, blank=True, default="")
     is_partial = models.BooleanField(default=False, help_text="True when the stream was cut before the model finished.")
     llm_call = models.ForeignKey(LlmApiCallModel, on_delete=models.SET_NULL, null=True, blank=True, related_name='agent_messages')
