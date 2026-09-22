@@ -1,4 +1,5 @@
 import type { Chat, TextTurn, ToolTurn, Turn } from "@/hooks/use-chats";
+import { invocationLabel } from "@/lib/skills";
 
 const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -23,7 +24,7 @@ const STATUS_WORDS: Record<ToolTurn["status"], string> = {
 };
 
 function textTurn(turn: TextTurn): string {
-  if (turn.role === "user") return `## You${when(turn.at)}\n\n${turn.content.trim()}`;
+  if (turn.role === "user") return `## You${when(turn.at)}\n\n${invocationLabel(turn.skill, turn.content).trim()}`;
   const bits: string[] = [];
   if (turn.step != null) bits.push(`step ${turn.step}`);
   if (turn.meta?.model) bits.push(turn.meta.model);

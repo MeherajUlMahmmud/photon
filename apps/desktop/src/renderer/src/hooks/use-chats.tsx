@@ -2,9 +2,14 @@ import * as React from "react";
 import type { AgentEvent, ApprovalDecision, ChatMessage, CompletionEvent, ToolRisk } from "../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
+import { invocationLabel } from "@/lib/skills";
 import { errorMessage } from "@/lib/utils";
 
-/** A user message or an assistant reply. */
+/**
+ * A user message or an assistant reply. A user turn that invoked a skill
+ * keeps `skill` (its name) and `content` (the arguments only); the server
+ * splices the skill's instructions in on every send.
+ */
 export type TextTurn = ChatMessage & {
   /** When the turn was sent or received, epoch ms. Older saved turns may lack it. */
   at?: number;
@@ -75,7 +80,13 @@ export type Chat = {
   updatedAt: number;
 };
 
-type SendOptions = { provider: string; model: string; spaceId?: string };
+type SendOptions = {
+  provider: string;
+  model: string;
+  spaceId?: string;
+  /** Name of the skill the message invokes; `content` is then its arguments and may be empty. */
+  skill?: string;
+};
 
 type ChatsContextValue = {
   chats: Chat[];
@@ -145,11 +156,8 @@ function newId() {
 
 /** Title from the first user message: first line, trimmed to a sidebar-sized length. */
 function titleFor(turns: Turn[]): string {
-  const first =
-    turns
-      .find((t): t is TextTurn => t.role === "user")
-      ?.content.trim()
-      .split("\n")[0] ?? "";
+  const userTurn = turns.find((t): t is TextTurn => t.role === "user");
+  const first = userTurn ? invocationLabel(userTurn.skill, userTurn.content).trim().split("\n")[0] ?? "" : "";
   if (!first) return "New chat";
   return first.length > TITLE_MAX ? `${first.slice(0, TITLE_MAX - 1)}…` : first;
 }
@@ -325,7 +333,9 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
             setChats((prev) => prev.map((c) => (c.id === target ? { ...c, sessionPin: pin } : c)));
           }
           const sid = sessionId;
-          await call((t) => window.photon.runAgentTurn(t, turnId, { sessionId: sid, workspaceId: spaceId, content }));
+          await call((t) =>
+            window.photon.runAgentTurn(t, turnId, { sessionId: sid, workspaceId: spaceId, content, skill: opts.skill }),
+          );
         } catch (err) {
           setErrors((e) => ({ ...e, [target]: errorMessage(err) }));
         } finally {
@@ -345,7 +355,7 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
   const send = React.useCallback(
     (id: string | null, content: string, opts: SendOptions) => {
-      const userTurn: Turn = { role: "user", content, at: Date.now() };
+      const userTurn: Turn = opts.skill ? { role: "user", content, skill: opts.skill, at: Date.now() } : { role: "user", content, at: Date.now() };
       let chatId = id;
       let history: Turn[];
 
@@ -375,7 +385,9 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
           id: chatId,
           title: titleFor(history),
           turns: history,
-          ...opts,
+          provider: opts.provider,
+          model: opts.model,
+          spaceId: opts.spaceId,
           createdAt: now,
           updatedAt: now,
         };
@@ -442,7 +454,10 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
               messages: [
                 { role: "system", content: SYSTEM_PROMPT },
                 // Plain chats never hold tool turns; the filter keeps the types honest.
-                ...history.filter((t): t is TextTurn => t.role !== "tool").map(({ role, content }) => ({ role, content })),
+                // A skill turn is re-sent as `skill` + arguments so the server expands it again.
+                ...history
+                  .filter((t): t is TextTurn => t.role !== "tool")
+                  .map(({ role, content, skill }) => (skill ? { role, content, skill } : { role, content })),
               ],
               provider: opts.provider,
               model: opts.model,

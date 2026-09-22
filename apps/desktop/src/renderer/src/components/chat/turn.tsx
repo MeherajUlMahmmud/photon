@@ -104,7 +104,15 @@ export function UserTurn({ turn, initials }: { turn: TextTurn; initials: string 
   return (
     <div className="group/turn ml-auto flex max-w-[75%] items-start gap-3">
       <div className="min-w-0">
-        <p className="rounded-lg bg-sheet px-4 py-3 whitespace-pre-wrap">{turn.content}</p>
+        <p className="rounded-lg bg-sheet px-4 py-3 whitespace-pre-wrap">
+          {/* A skill invocation shows as the command it was typed as; the instructions live on the server. */}
+          {turn.skill && (
+            <span className="mr-2 inline-block rounded border border-input px-1.5 font-mono text-small leading-[1.6]" title="Skill">
+              /{turn.skill}
+            </span>
+          )}
+          {turn.content}
+        </p>
         <TurnMeta turn={turn} align="right" />
       </div>
       <Avatar>{initials}</Avatar>

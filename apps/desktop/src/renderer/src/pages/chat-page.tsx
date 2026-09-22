@@ -6,6 +6,8 @@ import type { DictationEngine, LlmProvider } from "../../../preload/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
 import { useChats, type Turn } from "@/hooks/use-chats";
+import { useSkills } from "@/hooks/use-skills";
+import { parseInvocation } from "@/lib/skills";
 import { useStoredFlag } from "@/hooks/use-stored-flag";
 import { DICTATION_ENGINE_KEY, useDictation } from "@/hooks/use-dictation";
 import { useToast } from "@/hooks/use-toast";
@@ -79,6 +81,7 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   const { call, user } = useAuth();
   const chats = useChats();
   const chat = chatId ? chats.get(chatId) : undefined;
+  const { skills } = useSkills();
 
   const providers = useAsync(() => call((t) => window.photon.listProviders(t)), [user?.id]);
   const workspaces = useAsync(() => call((t) => window.photon.listWorkspaces(t)), [user?.id]);
@@ -138,12 +141,14 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
   }
 
   function send() {
-    const content = draft.trim();
-    if (!content || busy || !current) return;
+    const typed = draft.trim();
+    if (!typed || busy || !current) return;
     if (inSpace && !spaceId) return;
+    // `/name args` becomes a skill invocation when the user has a skill by that name.
+    const { skill, content } = parseInvocation(typed, skills);
     setDraft("");
     pinned.current = true;
-    const id = chats.send(chatId ?? null, content, { provider: current.provider, model, spaceId });
+    const id = chats.send(chatId ?? null, content, { provider: current.provider, model, spaceId, skill });
     if (!chatId) navigate(`/chat/${id}`, { replace: true });
   }
 
@@ -218,8 +223,9 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
           onSend={send}
           onStop={busy && chatId ? () => chats.stop(chatId) : undefined}
           disabled={!ready.length || busy}
-          placeholder={ready.length ? "Ask something" : "Add an API key first"}
+          placeholder={ready.length ? (skills.length ? "Ask something, or / for a skill" : "Ask something") : "Add an API key first"}
           dictation={canDictate ? dictation : undefined}
+          skills={skills}
           footer={
             <ModelPicker
               providers={ready}
