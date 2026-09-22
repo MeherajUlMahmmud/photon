@@ -63,7 +63,33 @@ export type ProviderTestResult = {
   default_model_available?: boolean;
 };
 
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+/**
+ * One transcript line. A user message may name a `skill`: the server splices
+ * that skill's instructions in and treats `content` as its arguments.
+ */
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string; skill?: string };
+
+/**
+ * A reusable prompt installed from a pasted Markdown file and invoked as
+ * `/<name>` in the composer. `content` is the file body without front matter.
+ */
+export type Skill = {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SkillInstallInput = {
+  /** The whole file: optional `---` front matter with `name` / `description`, then the instructions. */
+  markdown: string;
+  /** Overrides the name in the file. */
+  name?: string;
+  /** Update a skill of the same name instead of failing. */
+  replace?: boolean;
+};
 
 export type CompletionInput = {
   messages: ChatMessage[];
@@ -281,7 +307,8 @@ export type PhotonApi = {
   runAgentTurn: (
     tokens: Tokens,
     turnId: string,
-    input: { sessionId: string; workspaceId: string; content: string },
+    /** `skill` invokes one of the user's skills; `content` is then its arguments and may be empty. */
+    input: { sessionId: string; workspaceId: string; content: string; skill?: string },
   ) => Promise<WithTokens<null>>;
   /** Answers an `approval_needed` event. */
   approveToolCall: (turnId: string, callId: string, decision: ApprovalDecision) => Promise<void>;
@@ -310,4 +337,10 @@ export type PhotonApi = {
   onLocalDictationProgress: (listener: (progress: LocalDictationProgress) => void) => () => void;
   listLlmCalls: (tokens: Tokens, query?: LlmCallQuery) => Promise<WithTokens<Page<LlmCall>>>;
   getLlmCall: (tokens: Tokens, id: string) => Promise<WithTokens<LlmCallDetails>>;
+  /** Skills, in name order. */
+  listSkills: (tokens: Tokens) => Promise<WithTokens<Skill[]>>;
+  installSkill: (tokens: Tokens, input: SkillInstallInput) => Promise<WithTokens<Skill>>;
+  /** Replaces the file behind a skill; a different `name` in the file renames it. */
+  updateSkill: (tokens: Tokens, name: string, markdown: string) => Promise<WithTokens<Skill>>;
+  deleteSkill: (tokens: Tokens, name: string) => Promise<WithTokens<boolean>>;
 };

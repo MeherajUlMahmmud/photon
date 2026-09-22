@@ -65,6 +65,10 @@ const photonApi: PhotonApi = {
   },
   listLlmCalls: (tokens, query) => ipcRenderer.invoke("ai:listCalls", tokens, query ?? {}),
   getLlmCall: (tokens, id) => ipcRenderer.invoke("ai:getCall", tokens, id),
+  listSkills: (tokens) => ipcRenderer.invoke("ai:listSkills", tokens),
+  installSkill: (tokens, input) => ipcRenderer.invoke("ai:installSkill", tokens, input),
+  updateSkill: (tokens, name, markdown) => ipcRenderer.invoke("ai:updateSkill", tokens, name, markdown),
+  deleteSkill: (tokens, name) => ipcRenderer.invoke("ai:deleteSkill", tokens, name),
 };
 
 contextBridge.exposeInMainWorld("photon", photonApi);

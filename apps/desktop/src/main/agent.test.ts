@@ -76,6 +76,14 @@ describe("AgentTurn", () => {
     assert.deepEqual(events.at(-1), { type: "done", stop_reason: "end_turn", steps: 2 });
   });
 
+  it("sends the invoked skill with the first step only", async () => {
+    const { turn, bodies } = run([
+      [{ type: "start", provider: "anthropic", model: "m" }, done({ stop_reason: "end_turn", step_count: 1, pending_tool_calls: [] })],
+    ]);
+    await turn.run("src/a.ts", "review");
+    assert.deepEqual(bodies, [{ content: "src/a.ts", skill: "review" }]);
+  });
+
   it("asks before write tools and reports a denial to the server", async () => {
     const { turn, events, bodies } = run(
       [

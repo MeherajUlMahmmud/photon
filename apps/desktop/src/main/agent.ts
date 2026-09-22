@@ -86,9 +86,10 @@ export class AgentTurn {
    * emitted; never rejects for model or tool failures, only for transport
    * errors the caller should surface (those are reported as `error` too).
    */
-  async run(content: string): Promise<void> {
-    // The first step carries the user's message; every later one carries tool results.
-    let body: { content: string } | { tool_results: ToolResult[] } = { content };
+  async run(content: string, skill?: string): Promise<void> {
+    // The first step carries the user's message (and the skill it invokes, if
+    // any); every later one carries tool results.
+    let body: { content: string; skill?: string } | { tool_results: ToolResult[] } = skill ? { content, skill } : { content };
 
     for (;;) {
       if (this.signal.aborted) return this.finish("cancelled");

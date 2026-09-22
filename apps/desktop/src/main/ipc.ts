@@ -22,6 +22,8 @@ import type {
   ProviderTestResult,
   Page,
   RegisterInput,
+  Skill,
+  SkillInstallInput,
   Tokens,
   TranscriptionInput,
   TranscriptionOutput,
@@ -392,7 +394,7 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(
     "ai:runAgentTurn",
-    (e, tokens: Tokens, turnId: string, input: { sessionId: string; workspaceId: string; content: string }) =>
+    (e, tokens: Tokens, turnId: string, input: { sessionId: string; workspaceId: string; content: string; skill?: string }) =>
       withTokens(tokens, async (opts) => {
         const root = await workspaceRoot(opts, input.workspaceId);
         const turn = new AgentTurn({
@@ -406,7 +408,7 @@ export function registerIpc(deps: IpcDeps): void {
         });
         turns.set(turnId, { turn, sessionId: input.sessionId });
         try {
-          await turn.run(input.content);
+          await turn.run(input.content, input.skill);
         } finally {
           turns.delete(turnId);
         }
@@ -478,5 +480,28 @@ export function registerIpc(deps: IpcDeps): void {
     withTokens(tokens, (opts) =>
       api.request<LlmCallDetails>("GET", `/api/ai/call/${encodeURIComponent(id)}/details/`, opts),
     ),
+  );
+
+  // --------------------------------------------------------------- skills
+
+  ipcMain.handle("ai:listSkills", (_e, tokens: Tokens) =>
+    withTokens(tokens, (opts) => api.request<Skill[] | undefined>("GET", "/api/ai/skill/list/", opts).then((s) => s ?? [])),
+  );
+
+  ipcMain.handle("ai:installSkill", (_e, tokens: Tokens, input: SkillInstallInput) =>
+    withTokens(tokens, (opts) => api.request<Skill>("POST", "/api/ai/skill/install/", { ...opts, body: input })),
+  );
+
+  ipcMain.handle("ai:updateSkill", (_e, tokens: Tokens, name: string, markdown: string) =>
+    withTokens(tokens, (opts) =>
+      api.request<Skill>("PUT", `/api/ai/skill/${encodeURIComponent(name)}/update/`, { ...opts, body: { markdown } }),
+    ),
+  );
+
+  ipcMain.handle("ai:deleteSkill", (_e, tokens: Tokens, name: string) =>
+    withTokens(tokens, async (opts) => {
+      await api.request("DELETE", `/api/ai/skill/${encodeURIComponent(name)}/delete/`, opts);
+      return true;
+    }),
   );
 }
