@@ -28,7 +28,7 @@ function serveWorkspaceFile(request: Request): Promise<Response> | Response {
 const API_URL =
   import.meta.env.MAIN_VITE_API_URL ??
   process.env.PHOTON_API_URL ??
-  "http://127.0.0.1:8000";
+  "http://127.0.0.1:8080";
 
 let mainWindow: BrowserWindow | null = null;
 

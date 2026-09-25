@@ -18,7 +18,7 @@ python3 -m venv apps/server/.venv && apps/server/.venv/bin/pip install -r apps/s
   && .venv/bin/python manage.py 3_create_default_llm_providers \
   && .venv/bin/python manage.py 4_create_default_llm_tools)
 
-pnpm server          # Django API on http://127.0.0.1:8000 (terminal 1)
+pnpm server          # Django API on http://127.0.0.1:8080 (terminal 1)
 pnpm dev             # builds packages, then electron-vite dev (terminal 2)
 
 pnpm build           # packages + desktop production build

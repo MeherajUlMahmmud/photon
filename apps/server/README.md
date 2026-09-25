@@ -1,6 +1,6 @@
 # Photon server
 
-Django + DRF service that owns Photon's data: accounts, JWT sessions, per-user settings, Fernet-encrypted API keys, and workspaces. It runs as its own process; the Electron app calls it over HTTP from the main process (`PHOTON_API_URL`, default `http://127.0.0.1:8000`).
+Django + DRF service that owns Photon's data: accounts, JWT sessions, per-user settings, Fernet-encrypted API keys, and workspaces. It runs as its own process; the Electron app calls it over HTTP from the main process (`PHOTON_API_URL`, default `http://127.0.0.1:8080`).
 
 Layout and conventions follow the `shining-services-server` project (`base/` project package, `*_control` apps, `ApiResponse` envelope, `{Entity}Model` / `{Verb}{Entity}APIView` / `{Entity}ModelSerializer.{List,Details,...}` naming, one file per entity under `views/`, `serializers/`, `services/`).
 
@@ -20,7 +20,7 @@ cp .env.example .env            # optional; defaults work for local dev
 ## Run
 
 ```bash
-.venv/bin/python manage.py runserver        # http://127.0.0.1:8000
+.venv/bin/python manage.py runserver 8080   # http://127.0.0.1:8080
 ```
 
 Then `pnpm dev` from the repo root for the desktop app.

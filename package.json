@@ -10,7 +10,7 @@
     "build:packages": "pnpm --filter @photon/shared --filter @photon/harness --filter @photon/tools run build",
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm build:packages && pnpm -r run test",
-    "server": "cd apps/server && .venv/bin/python manage.py runserver",
+    "server": "cd apps/server && .venv/bin/python manage.py runserver 8080",
     "test:server": "cd apps/server && .venv/bin/python manage.py test"
   },
   "engines": {

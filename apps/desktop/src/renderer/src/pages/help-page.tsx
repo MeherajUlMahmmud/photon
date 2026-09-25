@@ -21,7 +21,7 @@ const FAQ: Array<{ q: string; a: string }> = [
   },
   {
     q: "It says the server is not answering.",
-    a: "Start it from the repo root with pnpm server. The app looks for it at http://127.0.0.1:8000 unless PHOTON_API_URL points somewhere else.",
+    a: "Start it from the repo root with pnpm server. The app looks for it at http://127.0.0.1:8080 unless PHOTON_API_URL points somewhere else.",
   },
 ];
 

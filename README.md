@@ -10,7 +10,7 @@ The desktop app needs the Python server running (see [apps/server/README.md](app
 pnpm install
 python3 -m venv apps/server/.venv && apps/server/.venv/bin/pip install -r apps/server/requirements.txt
 (cd apps/server && .venv/bin/python manage.py migrate && .venv/bin/python manage.py 3_create_default_llm_providers)
-pnpm server   # terminal 1: API on http://127.0.0.1:8000
+pnpm server   # terminal 1: API on http://127.0.0.1:8080
 pnpm dev      # terminal 2: Electron app
 ```
 
