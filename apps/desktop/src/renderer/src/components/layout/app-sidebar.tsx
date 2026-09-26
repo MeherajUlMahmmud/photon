@@ -1,7 +1,10 @@
 import * as React from "react";
 import { Link, matchPath, useLocation, useNavigate } from "react-router-dom";
 import {
+  Archive,
+  ArrowCounterClockwise,
   Broom,
+  CaretRight,
   CaretUpDown,
   ChatCircleText,
   DotsThree,
@@ -15,6 +18,8 @@ import {
   Trash,
   User,
 } from "@phosphor-icons/react";
+
+import type { WorkspaceInfo } from "../../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
@@ -263,27 +268,128 @@ function ChatList({ pathname }: { pathname: string }) {
   );
 }
 
-/** The Space tab: a new-space button, then each workspace with the chats that run in it. */
+/** The "…" menu on a space's header. Archiving hides the space and its chats; nothing is deleted. */
+function SpaceMenu({ ws, onArchive }: { ws: WorkspaceInfo; onArchive: () => void }) {
+  const { isMobile } = useSidebar();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <SidebarGroupAction
+          className="top-2.5 right-7 opacity-0 group-hover/space:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          aria-label={`Actions for ${ws.name}`}
+          title={`Actions for ${ws.name}`}
+        >
+          <DotsThree weight="bold" />
+        </SidebarGroupAction>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side={isMobile ? "bottom" : "right"} align="start" className="w-48">
+        <DropdownMenuItem onSelect={onArchive}>
+          <Archive weight="bold" />
+          Archive space
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Archived spaces, collapsed by default; each can be brought back. */
+function ArchivedSpaces({
+  spaces,
+  chatCount,
+  onRestore,
+}: {
+  spaces: WorkspaceInfo[];
+  chatCount: (id: string) => number;
+  onRestore: (ws: WorkspaceInfo) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  if (!spaces.length) return null;
+  return (
+    <SidebarGroup className="p-0 pt-4 group-data-[collapsible=icon]:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-small text-slate hover:bg-sidebar-accent hover:text-foreground"
+      >
+        <CaretRight weight="bold" className={`size-3 shrink-0 transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
+        <Archive weight="bold" className="size-3.5 shrink-0" />
+        <span className="flex-1 text-left">Archived</span>
+        <span className="font-mono text-micro">{spaces.length}</span>
+      </button>
+      {open && (
+        <SidebarGroupContent className="animate-reveal">
+          <SidebarMenu>
+            {spaces.map((ws) => {
+              const n = chatCount(ws.id);
+              return (
+                <SidebarMenuItem key={ws.id}>
+                  <div className="flex h-8 min-w-0 items-center gap-2 pr-1 pl-7 text-small" title={ws.root_path}>
+                    <span className="min-w-0 flex-1 truncate font-mono text-slate">{ws.name}</span>
+                    {n > 0 && <span className="shrink-0 font-mono text-micro text-slate">{n}</span>}
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      className="size-7 shrink-0"
+                      onClick={() => onRestore(ws)}
+                      aria-label={`Unarchive ${ws.name}`}
+                      title="Unarchive"
+                    >
+                      <ArrowCounterClockwise className="size-3.5" />
+                    </Button>
+                  </div>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      )}
+    </SidebarGroup>
+  );
+}
+
+/** The Space tab: a new-space button, each open workspace with its chats, then the archived ones. */
 function SpaceList({ pathname }: { pathname: string }) {
   const { call, user } = useAuth();
-  const { chats } = useChats();
+  const { chats, get } = useChats();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const workspaces = useAsync(() => call((t) => window.photon.listWorkspaces(t)), [user?.id]);
   const onRemove = useRemoveChat(pathname, "/space/chat");
+  const live = workspaces.data?.filter((w) => !w.archived_at) ?? [];
+  const archived = workspaces.data?.filter((w) => w.archived_at) ?? [];
+
+  async function setArchived(ws: WorkspaceInfo, archived: boolean) {
+    try {
+      await call((t) => window.photon.setWorkspaceArchived(t, ws.id, archived));
+      workspaces.reload();
+      toast(archived ? `Archived ${ws.name}. It's under Archived at the bottom.` : `${ws.name} is back`);
+      if (!archived) return;
+      // Leave pages that belong to the space just archived.
+      const chatId = matchPath("/chat/:chatId", pathname)?.params.chatId;
+      if (pathname.startsWith(`/space/${ws.id}/`) || (chatId && get(chatId)?.spaceId === ws.id)) {
+        navigate("/space/chat", { replace: true });
+      }
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  }
 
   return (
     <>
       <SidebarMenu>
         <NewSpaceRow onOpened={workspaces.reload} />
       </SidebarMenu>
-      {workspaces.data?.map((ws) => {
+      {live.map((ws) => {
         const own = chats.filter((c) => c.spaceId === ws.id);
         const newActive = pathname === `/space/${ws.id}/chat`;
         return (
-          <SidebarGroup key={ws.id} className="p-0 pt-2 group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel className="h-6 gap-1.5 px-2 font-mono text-small" title={ws.root_path}>
+          <SidebarGroup key={ws.id} className="group/space p-0 pt-2 group-data-[collapsible=icon]:hidden">
+            <SidebarGroupLabel className="h-6 gap-1.5 pr-14 pl-2 font-mono text-small" title={ws.root_path}>
               <FolderOpen weight="bold" className="size-3.5 shrink-0" />
               <span className="truncate">{ws.name}</span>
             </SidebarGroupLabel>
+            <SpaceMenu ws={ws} onArchive={() => void setArchived(ws, true)} />
             <SidebarGroupAction asChild className="top-2.5 right-1" title={`New chat in ${ws.name}`}>
               <Link to={`/space/${ws.id}/chat`} aria-label={`New chat in ${ws.name}`} aria-current={newActive ? "page" : undefined}>
                 <Plus weight="bold" />
@@ -299,6 +405,11 @@ function SpaceList({ pathname }: { pathname: string }) {
           </SidebarGroup>
         );
       })}
+      <ArchivedSpaces
+        spaces={archived}
+        chatCount={(id) => chats.filter((c) => c.spaceId === id).length}
+        onRestore={(ws) => void setArchived(ws, false)}
+      />
     </>
   );
 }

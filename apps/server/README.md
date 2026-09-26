@@ -69,6 +69,8 @@ Every response is the envelope `{status, status_code, message, data?, errors?, m
 | GET | `/api/workspace/list/` | | paginated: `data: {data: [...], total_records, ...}` |
 | GET | `/api/workspace/active/` | | most recently opened |
 | POST | `/api/workspace/open/` | `{root_path}` | upsert by path, marks it active |
+| POST | `/api/workspace/<uuid>/archive/` | | sets `archived_at`: the space stays listed (the client groups it under Archived) but is never the active one; nothing is deleted |
+| POST | `/api/workspace/<uuid>/unarchive/` | | clears `archived_at`; opening the same folder again does too |
 | GET | `/api/ai/provider/list/` | | active providers in priority order, each with `has_key` for this user and `model_ids` |
 | POST | `/api/ai/completion/create/` | `{messages:[{role,content,skill?,images?:[{media_type,data}]}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer; a user message with `skill` is expanded server-side (`404` for an unknown skill) |
 | POST | `/api/ai/completion/stream/` | same body | NDJSON events `start`, `delta`, `done` / `error` |

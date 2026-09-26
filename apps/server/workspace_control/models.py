@@ -15,6 +15,10 @@ class WorkspaceModel(BaseModel):
     name = models.CharField(max_length=255)
     root_path = models.CharField(max_length=4096)
     last_opened_at = models.DateTimeField()
+    archived_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text="Set when the user archives the space: hidden from the sidebar, nothing deleted. Opening the folder again clears it.",
+    )
 
     class Meta:
         db_table = 'workspace_control_workspaces'

@@ -32,6 +32,25 @@ class GetActiveWorkspaceAPIView(APIView):
         return ApiResponse.success(message='Active workspace fetched successfully', data=data)
 
 
+class ArchiveWorkspaceAPIView(APIView):
+    """Hide a space from the sidebar. Its chats and files are untouched; unarchiving brings it back."""
+    permission_classes = [IsAuthenticated]
+    archived = True
+
+    def post(self, request, workspace_id):
+        workspace = WorkspaceService.set_archived(request.user, workspace_id, self.archived)
+        if workspace is None:
+            return ApiResponse.not_found(message='Workspace not found')
+        return ApiResponse.success(
+            message='Workspace archived' if self.archived else 'Workspace restored',
+            data=WorkspaceModelSerializer.Details(workspace).data,
+        )
+
+
+class UnarchiveWorkspaceAPIView(ArchiveWorkspaceAPIView):
+    archived = False
+
+
 class OpenWorkspaceAPIView(APIView):
     permission_classes = [IsAuthenticated]
 

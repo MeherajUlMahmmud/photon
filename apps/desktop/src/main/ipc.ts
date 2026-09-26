@@ -196,6 +196,16 @@ export function registerIpc(deps: IpcDeps): void {
     }),
   );
 
+  ipcMain.handle("workspace:setArchived", (_e, tokens: Tokens, workspaceId: string, archived: boolean) =>
+    withTokens(tokens, (opts) =>
+      api.request<WorkspaceInfo>(
+        "POST",
+        `/api/workspace/${encodeURIComponent(workspaceId)}/${archived ? "archive" : "unarchive"}/`,
+        opts,
+      ),
+    ),
+  );
+
   /** Asks where to save a text file the renderer built (chat export). Returns the path, or null on cancel. */
   ipcMain.handle("file:saveText", async (_e, input: { defaultName: string; content: string }) => {
     const win = getWindow();

@@ -24,6 +24,8 @@ class WorkspaceService:
                 'name': WorkspaceService.name_for_path(root_path),
                 'last_opened_at': now,
                 'is_deleted': False,
+                # Picking an archived folder again brings the space back.
+                'archived_at': None,
                 'updated_by': user,
             },
         )
@@ -38,4 +40,24 @@ class WorkspaceService:
 
     @staticmethod
     def active_workspace(user):
-        return WorkspaceModel.objects.filter(user=user, is_deleted=False).order_by('-last_opened_at').first()
+        """Most recently opened space that is not archived."""
+        return (
+            WorkspaceModel.objects.filter(user=user, is_deleted=False, archived_at__isnull=True)
+            .order_by('-last_opened_at')
+            .first()
+        )
+
+    @staticmethod
+    def set_archived(user, workspace_id, archived):
+        """Archive or restore one of the user's spaces. Returns None when it isn't theirs or doesn't exist."""
+        workspace = WorkspaceModel.objects.filter(id=workspace_id, user=user, is_deleted=False).first()
+        if workspace is None:
+            return None
+        workspace.archived_at = timezone.now() if archived else None
+        workspace.updated_by = user
+        workspace.save(update_fields=['archived_at', 'updated_by', 'updated_at'])
+        logger.info(
+            '[WorkspaceService] %s workspace - user_id=%s, workspace_id=%s',
+            'Archived' if archived else 'Unarchived', user.id, workspace.id,
+        )
+        return workspace

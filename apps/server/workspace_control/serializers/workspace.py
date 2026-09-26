@@ -7,8 +7,8 @@ class WorkspaceModelSerializerMeta(serializers.ModelSerializer):
     class Meta:
         model = WorkspaceModel
         ref_name = 'WorkspaceModelMeta'
-        fields = ['id', 'name', 'root_path', 'created_at', 'last_opened_at']
-        read_only_fields = ['id', 'name', 'created_at', 'last_opened_at']
+        fields = ['id', 'name', 'root_path', 'created_at', 'last_opened_at', 'archived_at']
+        read_only_fields = ['id', 'name', 'created_at', 'last_opened_at', 'archived_at']
 
 
 class WorkspaceModelSerializer:
