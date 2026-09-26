@@ -9,6 +9,7 @@ import { AppErrorBoundary } from "@/components/error-boundary";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { HeaderActionsProvider, HeaderActionsSlot } from "@/components/layout/header-actions";
+import { useShortcut } from "@/hooks/use-keymap";
 
 /** Signed-in shell: collapsible sidebar + page outlet. Redirects to /login otherwise. */
 export function AppShell() {
@@ -22,6 +23,7 @@ export function AppShell() {
           <HeaderActionsProvider>
             <SidebarProvider>
               <AnnotationInbox />
+              <AppShortcuts />
               <AppSidebar />
               {/* min-w-0: a flex item otherwise grows to fit its widest child and pushes past the window. */}
               <SidebarInset className="h-svh max-h-svh min-w-0">
@@ -46,6 +48,14 @@ export function AppShell() {
   }
 
   return <Navigate to="/login" replace state={{ from: location }} />;
+}
+
+/** Window-wide shortcuts that navigate; rebindable in Settings > Shortcuts. */
+function AppShortcuts() {
+  const navigate = useNavigate();
+  useShortcut("app.new-chat", () => navigate("/chat"), { inFields: true });
+  useShortcut("app.open-settings", () => navigate("/settings"), { inFields: true });
+  return null;
 }
 
 /** Annotated screenshots sent to "New chat" from the overlay open a fresh plain chat with the picture attached. */
@@ -73,6 +83,7 @@ const TITLES: Record<string, string> = {
   account: "Account",
   security: "Password",
   companion: "Companion",
+  shortcuts: "Shortcuts",
   help: "Help",
 };
 

@@ -8,6 +8,7 @@ const SECTIONS = [
   { to: "/settings/providers", label: "API keys" },
   { to: "/settings/skills", label: "Skills" },
   { to: "/settings/companion", label: "Companion" },
+  { to: "/settings/shortcuts", label: "Shortcuts" },
   { to: "/settings/account", label: "Account" },
   { to: "/settings/security", label: "Password" },
 ];

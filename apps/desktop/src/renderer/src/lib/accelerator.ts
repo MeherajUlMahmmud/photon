@@ -8,6 +8,8 @@ type KeyPress = Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey" | 
 const NAMED_CODES: Record<string, string> = {
   Space: "Space",
   Enter: "Enter",
+  NumpadEnter: "Enter",
+  Escape: "Escape",
   Tab: "Tab",
   Backspace: "Backspace",
   Delete: "Delete",
@@ -47,11 +49,12 @@ export type Recorded =
   | { kind: "invalid"; reason: string };
 
 /**
- * Turns a key press into an accelerator. A shortcut needs at least one
- * modifier (function keys excepted), or typing that key anywhere would
- * open the companion.
+ * Turns a key press into an accelerator. By default a shortcut needs at least
+ * one modifier (function keys excepted), or typing that key anywhere would
+ * trigger it. `allowBare` lifts that for shortcuts that only apply inside a
+ * surface with no text field focused, like the annotate overlay's tool keys.
  */
-export function acceleratorFromKey(e: KeyPress, mac: boolean): Recorded {
+export function acceleratorFromKey(e: KeyPress, mac: boolean, opts: { allowBare?: boolean } = {}): Recorded {
   const key = keyName(e.code);
   if (!key) {
     return /^(Meta|Control|Alt|Shift)(Left|Right)$/.test(e.code)
@@ -64,7 +67,7 @@ export function acceleratorFromKey(e: KeyPress, mac: boolean): Recorded {
   if (e.altKey) mods.push("Alt");
   if (e.shiftKey) mods.push("Shift");
   const bare = mods.length === 0 || (mods.length === 1 && mods[0] === "Shift");
-  if (bare && !/^F\d+$/.test(key)) {
+  if (bare && !opts.allowBare && !/^F\d+$/.test(key)) {
     return { kind: "invalid", reason: "Add ⌘, ⌃ or ⌥ so normal typing doesn't trigger it." };
   }
   return { kind: "accelerator", accelerator: [...mods, key].join("+") };
@@ -93,3 +96,28 @@ export function acceleratorKeys(accelerator: string, mac: boolean): string[] {
 }
 
 export const isMac = () => typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+
+/** One spelling per accelerator: platform-resolved modifiers in a fixed order, so bindings compare as strings. */
+export function canonicalAccelerator(accelerator: string, mac: boolean): string {
+  const parts = accelerator.split("+").map((p) => p.trim()).filter(Boolean);
+  const key = parts.pop() ?? "";
+  const mods = new Set<string>();
+  for (const part of parts) {
+    const p = part.toLowerCase();
+    if (p === "commandorcontrol" || p === "cmdorctrl") mods.add(mac ? "Command" : "Control");
+    else if (p === "command" || p === "cmd") mods.add("Command");
+    else if (p === "super" || p === "meta") mods.add(mac ? "Command" : "Super");
+    else if (p === "control" || p === "ctrl") mods.add("Control");
+    else if (p === "alt" || p === "option") mods.add("Alt");
+    else if (p === "shift") mods.add("Shift");
+  }
+  const order = ["Command", "Super", "Control", "Alt", "Shift"];
+  const normalKey = key.length === 1 ? key.toUpperCase() : key === "Esc" ? "Escape" : key === "Return" ? "Enter" : key;
+  return [...order.filter((m) => mods.has(m)), normalKey].join("+");
+}
+
+/** True when the key event is exactly `accelerator` (no extra modifiers). */
+export function matchesAccelerator(e: KeyPress, accelerator: string, mac: boolean): boolean {
+  const pressed = acceleratorFromKey(e, mac, { allowBare: true });
+  return pressed.kind === "accelerator" && pressed.accelerator === canonicalAccelerator(accelerator, mac);
+}

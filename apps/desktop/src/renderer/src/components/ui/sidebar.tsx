@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { SidebarSimple } from "@phosphor-icons/react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useShortcut } from "@/hooks/use-keymap";
 import { usePanelWidth } from "@/hooks/use-panel-width";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,6 @@ const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_WIDTH_STORAGE_KEY = "photon.sidebar.width";
 const SIDEBAR_WIDTH_PX = { fallback: 240, min: 180, max: 480 };
-const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -97,16 +97,8 @@ function SidebarProvider({
     return isMobile ? setOpenMobile((o) => !o) : setOpen((o) => !o);
   }, [isMobile, setOpen, setOpenMobile]);
 
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        toggleSidebar();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSidebar]);
+  // Rebindable in Settings > Shortcuts; works while typing, like the other ⌘ shortcuts.
+  useShortcut("app.toggle-sidebar", toggleSidebar, { inFields: true });
 
   const state = open ? "expanded" : "collapsed";
 

@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { ApiClient } from "./api-client.js";
 import { cachedWorkspacePath, registerIpc } from "./ipc.js";
 import { registerDictationIpc } from "./dictation.js";
+import { registerShortcuts } from "./shortcuts.js";
 import {
   companionEnabled,
   companionSettings,
@@ -132,6 +133,7 @@ app.whenReady().then(() => {
   protocol.handle(FILE_SCHEME, serveWorkspaceFile);
   registerIpc({ api: new ApiClient(API_URL), getWindow: () => mainWindow, dialog });
   registerDictationIpc();
+  registerShortcuts(join(app.getPath("userData"), "shortcuts.json"));
   registerCompanion(companion);
   registerAnnotate({ loadRoute, companion, openMainWindow, getMainWindow: () => mainWindow }, companionSettings());
 

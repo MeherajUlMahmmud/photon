@@ -1,5 +1,6 @@
 import * as React from "react";
 import { ArrowUp, CircleNotch, Microphone, Stop } from "@phosphor-icons/react";
+import { useKeymap } from "@/hooks/use-keymap";
 
 import type { LocalDictationProgress, Skill } from "../../../../preload/api";
 import type { DictationState } from "@/hooks/use-dictation";
@@ -101,6 +102,7 @@ export function Composer({
   canSend?: boolean;
 }) {
   const sendable = canSend ?? Boolean(value.trim());
+  const keymap = useKeymap();
   const recording = dictation?.state === "recording";
   const preparing = dictation?.state === "preparing";
 
@@ -147,7 +149,8 @@ export function Composer({
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Send is rebindable (Settings > Shortcuts); Shift+Enter and any other Enter still make a new line.
+    if (!e.nativeEvent.isComposing && keymap.matches("composer.send", e)) {
       e.preventDefault();
       onSend();
     }

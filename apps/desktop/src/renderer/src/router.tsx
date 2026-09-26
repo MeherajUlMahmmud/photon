@@ -13,6 +13,7 @@ import { GeneralSettingsPage } from "@/pages/settings/general-page";
 import { ProvidersSettingsPage } from "@/pages/settings/providers-page";
 import { SkillsSettingsPage } from "@/pages/settings/skills-page";
 import { CompanionSettingsPage } from "@/pages/settings/companion-page";
+import { ShortcutsSettingsPage } from "@/pages/settings/shortcuts-page";
 import { AccountSettingsPage } from "@/pages/settings/account-page";
 import { SecuritySettingsPage } from "@/pages/settings/security-page";
 import { HelpPage } from "@/pages/help-page";
@@ -55,6 +56,7 @@ export const router = createHashRouter([
               { path: "providers", element: <ProvidersSettingsPage /> },
               { path: "skills", element: <SkillsSettingsPage /> },
               { path: "companion", element: <CompanionSettingsPage /> },
+              { path: "shortcuts", element: <ShortcutsSettingsPage /> },
               { path: "account", element: <AccountSettingsPage /> },
               { path: "security", element: <SecuritySettingsPage /> },
             ],

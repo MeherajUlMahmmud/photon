@@ -4,6 +4,7 @@ import type {
   CompletionEvent,
   LocalDictationProgress,
   PhotonApi,
+  ShortcutOverrides,
 } from "./api";
 
 /** Subscribes to a main-process channel; returns the unsubscribe function. */
@@ -27,6 +28,8 @@ const photonApi: PhotonApi = {
     ipcRenderer.invoke("secrets:setApiKey", tokens, provider, apiKey),
   deleteApiKey: (tokens, provider) => ipcRenderer.invoke("secrets:deleteApiKey", tokens, provider),
   listWorkspaces: (tokens) => ipcRenderer.invoke("workspace:list", tokens),
+  setWorkspaceArchived: (tokens, workspaceId, archived) =>
+    ipcRenderer.invoke("workspace:setArchived", tokens, workspaceId, archived),
   openWorkspace: (tokens) => ipcRenderer.invoke("workspace:open", tokens),
   saveTextFile: (input) => ipcRenderer.invoke("file:saveText", input),
   getActiveWorkspace: (tokens) => ipcRenderer.invoke("workspace:getActive", tokens),
@@ -99,6 +102,9 @@ const photonApi: PhotonApi = {
   cancelAnnotation: () => ipcRenderer.invoke("annotate:cancel"),
   onAppAnnotation: (listener) => listen<void>("app:annotation", () => listener()),
   takeAppAnnotation: () => ipcRenderer.invoke("app:takeAnnotation"),
+  getShortcuts: () => ipcRenderer.invoke("shortcuts:get"),
+  setShortcut: (id, accelerator) => ipcRenderer.invoke("shortcuts:set", id, accelerator),
+  onShortcutsChanged: (listener) => listen<ShortcutOverrides>("shortcuts:changed", listener),
 };
 
 contextBridge.exposeInMainWorld("photon", photonApi);

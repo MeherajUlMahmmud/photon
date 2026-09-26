@@ -2,117 +2,25 @@ import * as React from "react";
 import type { CompanionInfo, CompanionSettings } from "../../../../preload/api";
 
 import { useToast } from "@/hooks/use-toast";
-import { acceleratorFromKey, acceleratorKeys, isMac } from "@/lib/accelerator";
+import { isMac } from "@/lib/accelerator";
+import { Link } from "react-router-dom";
+import { Keys } from "@/components/shortcut-recorder";
 import { errorMessage } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CheckboxField } from "@/components/form-fields";
 import { SettingsSection } from "@/pages/settings/settings-layout";
 
-const DEFAULT_SHORTCUT = "Alt+Space";
-const DEFAULT_ANNOTATE_SHORTCUT = "Alt+Shift+Space";
-
-export function Keys({ accelerator }: { accelerator: string }) {
+/** A shortcut shown read-only here; it is changed on the Shortcuts page with every other binding. */
+function ShortcutLine({ accelerator, error }: { accelerator: string | null; error: string | null }) {
   return (
-    <span className="inline-flex flex-wrap gap-1">
-      {acceleratorKeys(accelerator, isMac()).map((k, i) => (
-        <kbd key={i}>{k}</kbd>
-      ))}
-    </span>
-  );
-}
-
-/** Click, press the new combination; Esc cancels. The live shortcut is released meanwhile so it can be re-picked. */
-function ShortcutRecorder({
-  active,
-  saved,
-  fallback,
-  error,
-  enabled,
-  onSave,
-  disabled,
-}: {
-  /** The accelerator registered right now, if any. */
-  active: string | null;
-  /** The one in settings (shown when none is registered). */
-  saved: string;
-  /** What Reset goes back to. */
-  fallback: string;
-  error: string | null;
-  enabled: boolean;
-  onSave: (accelerator: string) => Promise<void>;
-  disabled: boolean;
-}) {
-  const [recording, setRecording] = React.useState(false);
-  const [hint, setHint] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!recording) return;
-    void window.photon.suspendCompanionShortcut(true);
-    function onKey(e: KeyboardEvent) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        setRecording(false);
-        return;
-      }
-      const result = acceleratorFromKey(e, isMac());
-      if (result.kind === "pending") return;
-      if (result.kind === "invalid") {
-        setHint(result.reason);
-        return;
-      }
-      setRecording(false);
-      void onSave(result.accelerator);
-    }
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      void window.photon.suspendCompanionShortcut(false);
-    };
-  }, [recording, onSave]);
-
-  const current = active ?? saved;
-
-  return (
-    <div className="grid gap-2">
+    <div className="grid gap-1.5">
       <div className="flex flex-wrap items-center gap-3">
-        <div
-          className={`flex h-9 min-w-40 items-center rounded-md border px-3 press ${
-            recording ? "border-verdigris bg-verdigris-wash" : "border-input bg-sheet"
-          }`}
-          aria-live="polite"
-        >
-          {recording ? <span className="text-small text-slate">Press the new shortcut…</span> : <Keys accelerator={current} />}
-        </div>
-        {recording ? (
-          <Button variant="ghost" onClick={() => setRecording(false)}>
-            Cancel
-          </Button>
-        ) : (
-          <>
-            <Button
-              variant="outline"
-              disabled={disabled}
-              onClick={() => {
-                setHint(null);
-                setRecording(true);
-              }}
-            >
-              Change
-            </Button>
-            {current !== fallback && (
-              <Button variant="quiet" disabled={disabled} onClick={() => void onSave(fallback)}>
-                Reset to <Keys accelerator={fallback} />
-              </Button>
-            )}
-          </>
-        )}
+        {accelerator ? <Keys accelerator={accelerator} /> : <span className="text-small text-slate">None active</span>}
+        <Link to="/settings/shortcuts" className="text-small underline decoration-input underline-offset-4 hover:decoration-black">
+          Change in Shortcuts
+        </Link>
       </div>
-      {recording && <p className="text-small text-slate">{hint ?? "Hold ⌘, ⌃ or ⌥ and press a key. Esc cancels."}</p>}
-      {!recording && error && <p className="text-small text-foreground">{error}</p>}
-      {!recording && enabled && !active && !error && (
-        <p className="text-small text-slate">No shortcut is active. Pick another one, or use the menu-bar icon.</p>
-      )}
+      {error && <p className="text-small text-foreground">{error}</p>}
     </div>
   );
 }
@@ -161,15 +69,6 @@ export function CompanionSettingsPage() {
     [toast],
   );
 
-  const saveShortcut = React.useCallback(
-    (accelerator: string) => save({ shortcut: accelerator }, "Shortcut saved"),
-    [save],
-  );
-  const saveAnnotateShortcut = React.useCallback(
-    (accelerator: string) => save({ annotateShortcut: accelerator }, "Annotate shortcut saved"),
-    [save],
-  );
-
   async function allowAccessibility() {
     try {
       setInfo(await window.photon.requestAccessibility());
@@ -210,15 +109,7 @@ export function CompanionSettingsPage() {
       </SettingsSection>
 
       <SettingsSection title="Shortcut" description="Works from any app, including full-screen ones. Press it again to hide.">
-        <ShortcutRecorder
-          active={info.shortcut}
-          saved={settings.shortcut}
-          fallback={DEFAULT_SHORTCUT}
-          error={info.shortcutError}
-          enabled={settings.enabled}
-          onSave={saveShortcut}
-          disabled={off || saving}
-        />
+        <ShortcutLine accelerator={info.shortcut} error={info.shortcutError} />
       </SettingsSection>
 
       <SettingsSection
@@ -255,15 +146,7 @@ export function CompanionSettingsPage() {
         <div className="grid gap-5">
           <div className="grid gap-2">
             <p className="text-small font-medium">Keyboard shortcut</p>
-            <ShortcutRecorder
-              active={info.annotate.shortcut}
-              saved={settings.annotateShortcut}
-              fallback={DEFAULT_ANNOTATE_SHORTCUT}
-              error={info.annotate.shortcutError}
-              enabled={settings.enabled}
-              onSave={saveAnnotateShortcut}
-              disabled={off || saving}
-            />
+            <ShortcutLine accelerator={info.annotate.shortcut} error={info.annotate.shortcutError} />
           </div>
           <CheckboxField
             name="companion_annotate_gesture"

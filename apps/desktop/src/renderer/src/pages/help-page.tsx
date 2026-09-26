@@ -1,13 +1,11 @@
 import * as React from "react";
 
-import { acceleratorKeys, isMac } from "@/lib/accelerator";
-import { Page, SectionTitle } from "@/components/layout/page";
+import { Link } from "react-router-dom";
 
-const SHORTCUTS: Array<{ keys: string[]; what: string }> = [
-  { keys: ["⌘", "B"], what: "Hide or show the sidebar" },
-  { keys: ["⌘", "Enter"], what: "Send the message in Chat" },
-  { keys: ["⌘", "R"], what: "Reload the window" },
-];
+import { useKeymap } from "@/hooks/use-keymap";
+import { SHORTCUT_ACTIONS } from "@/lib/keymap";
+import { Keys } from "@/components/shortcut-recorder";
+import { Page, SectionTitle } from "@/components/layout/page";
 
 const FAQ: Array<{ q: string; a: string }> = [
   {
@@ -37,28 +35,46 @@ const FAQ: Array<{ q: string; a: string }> = [
 ];
 
 export function HelpPage() {
-  // The companion shortcut is configurable, so it is read live rather than listed above.
-  const [companionShortcut, setCompanionShortcut] = React.useState<string | null>(null);
+  // Every binding is rebindable, so the list is read live: global ones from main, the rest from the keymap.
+  const keymap = useKeymap();
+  const [global, setGlobal] = React.useState<Array<{ keys: string; what: string }>>([]);
   React.useEffect(() => {
-    void window.photon.companionInfo().then((info) => setCompanionShortcut(info.shortcut));
+    void window.photon.companionInfo().then((info) =>
+      setGlobal(
+        [
+          { keys: info.shortcut ?? "", what: "Ask the companion, from any app" },
+          { keys: info.annotate.shortcut ?? "", what: "Annotate the screen, from any app" },
+        ].filter((s) => s.keys),
+      ),
+    );
   }, []);
-  const shortcuts = companionShortcut
-    ? [{ keys: acceleratorKeys(companionShortcut, isMac()), what: "Ask the companion about your screen, from any app" }, ...SHORTCUTS]
-    : SHORTCUTS;
+  const shortcuts = [
+    ...global,
+    ...SHORTCUT_ACTIONS.filter((a) => a.scope === "app" || a.scope === "composer").map((a) => ({
+      keys: keymap.binding(a.id),
+      what: a.label,
+    })),
+    { keys: "CommandOrControl+R", what: "Reload the window" },
+  ];
 
   return (
     <Page title="Shortcuts and answers">
       <div className="grid gap-14">
         <section>
-          <SectionTitle className="mb-5">Keyboard</SectionTitle>
+          <SectionTitle className="mb-2">Keyboard</SectionTitle>
+          <p className="mb-5 text-small text-slate">
+            Change any of these, and the companion and annotate keys, in{" "}
+            <Link to="/settings/shortcuts" className="underline decoration-input underline-offset-4 hover:decoration-black">
+              Settings, Shortcuts
+            </Link>
+            .
+          </p>
           <dl className="max-w-lg">
             {shortcuts.map((s) => (
               <div key={s.what} className="flex items-center justify-between gap-6 py-2.5">
                 <dt>{s.what}</dt>
-                <dd className="flex gap-1">
-                  {s.keys.map((k, i) => (
-                    <kbd key={i}>{k}</kbd>
-                  ))}
+                <dd className="shrink-0">
+                  <Keys accelerator={s.keys} />
                 </dd>
               </div>
             ))}

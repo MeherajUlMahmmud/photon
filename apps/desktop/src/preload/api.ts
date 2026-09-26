@@ -4,6 +4,8 @@ export type WorkspaceInfo = {
   root_path: string;
   created_at: string;
   last_opened_at: string;
+  /** Set when archived: hidden from the sidebar, nothing deleted. Opening the folder again clears it. */
+  archived_at: string | null;
 };
 
 export type DirEntry = { name: string; kind: "dir" | "file" };
@@ -108,6 +110,9 @@ export type CompanionSettings = {
   /** Keyboard alternative for the annotate overlay. */
   annotateShortcut: string;
 };
+
+/** User rebinds for in-app shortcuts, by keymap action id; missing ids use the default. */
+export type ShortcutOverrides = Record<string, string>;
 
 /** macOS Accessibility trust, which the global mouse gesture needs. Always `granted` elsewhere. */
 export type AccessibilityPermission = "granted" | "denied";
@@ -351,6 +356,8 @@ export type PhotonApi = {
   setApiKey: (tokens: Tokens, provider: string, apiKey: string) => Promise<WithTokens<boolean>>;
   deleteApiKey: (tokens: Tokens, provider: string) => Promise<WithTokens<boolean>>;
   listWorkspaces: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo[]>>;
+  /** Archives (true) or restores (false) a space. Its chats and files are untouched. */
+  setWorkspaceArchived: (tokens: Tokens, workspaceId: string, archived: boolean) => Promise<WithTokens<WorkspaceInfo>>;
   openWorkspace: (tokens: Tokens) => Promise<WithTokens<WorkspaceInfo | null>>;
   /** Save-as dialog for text the renderer produced (chat export). Resolves to the path, or null if cancelled. */
   saveTextFile: (input: { defaultName: string; content: string }) => Promise<string | null>;
@@ -458,6 +465,11 @@ export type PhotonApi = {
   takeAnnotationShot: () => Promise<Screenshot | null>;
   submitAnnotation: (input: AnnotationSubmit) => Promise<void>;
   cancelAnnotation: () => Promise<void>;
+  /** In-app shortcut overrides, shared by every window. */
+  getShortcuts: () => Promise<ShortcutOverrides>;
+  /** Rebinds one action; `accelerator` null resets it, `id` null resets all. Every window hears the change. */
+  setShortcut: (id: string | null, accelerator: string | null) => Promise<ShortcutOverrides>;
+  onShortcutsChanged: (listener: (overrides: ShortcutOverrides) => void) => () => void;
   /** Main window: fired when an annotated screenshot is waiting; collect it with `takeAppAnnotation` (also on mount). */
   onAppAnnotation: (listener: () => void) => () => void;
   takeAppAnnotation: () => Promise<AppAnnotation | null>;

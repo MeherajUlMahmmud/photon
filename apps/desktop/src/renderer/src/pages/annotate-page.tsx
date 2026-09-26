@@ -14,6 +14,8 @@ import type { AnnotationTarget, ChatImage, Screenshot } from "../../../preload/a
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { acceleratorKeys, isMac } from "@/lib/accelerator";
+import { useKeymap, useShortcut } from "@/hooks/use-keymap";
 
 /**
  * Full-screen overlay (`#/annotate`) over a frozen screenshot of the display.
@@ -34,15 +36,21 @@ type Shape =
 /** Marks need to read on any screenshot: warm red, yellow, and off-white. */
 const DEFAULT_COLOR = "#f06435";
 const COLORS = [DEFAULT_COLOR, "#f5c542", "#fcfbf9"];
-const TOOLS: Array<{ id: Tool; label: string; key: string; Icon: typeof PencilSimple }> = [
-  { id: "pen", label: "Pen", key: "P", Icon: PencilSimple },
-  { id: "box", label: "Box", key: "B", Icon: Square },
-  { id: "arrow", label: "Arrow", key: "A", Icon: ArrowUpRight },
-  { id: "text", label: "Text", key: "T", Icon: TextT },
+const TOOLS: Array<{ id: Tool; label: string; action: string; Icon: typeof PencilSimple }> = [
+  { id: "pen", label: "Pen", action: "annotate.tool-pen", Icon: PencilSimple },
+  { id: "box", label: "Box", action: "annotate.tool-box", Icon: Square },
+  { id: "arrow", label: "Arrow", action: "annotate.tool-arrow", Icon: ArrowUpRight },
+  { id: "text", label: "Text", action: "annotate.tool-text", Icon: TextT },
 ];
 const MAX_EXPORT_EDGE = 1568;
 const STROKE = 4;
 const TEXT_SIZE = 22;
+
+/** "⌘Z" on a Mac, "Ctrl+Z" elsewhere. */
+const keysText = (accelerator: string) => {
+  const mac = isMac();
+  return acceleratorKeys(accelerator, mac).join(mac ? "" : "+");
+};
 
 const shotUrl = (s: Screenshot) => `data:${s.image.media_type};base64,${s.image.data}`;
 
@@ -235,27 +243,16 @@ export function AnnotatePage() {
     [shot, sending, shapes, typing, color, note, reset],
   );
 
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const inField = e.target instanceof HTMLInputElement;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        if (typing) setTyping(null);
-        else cancel();
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !inField) {
-        e.preventDefault();
-        undo();
-        return;
-      }
-      if (inField || e.metaKey || e.ctrlKey || e.altKey) return;
-      const picked = TOOLS.find((t) => t.key === e.key.toUpperCase());
-      if (picked) setTool(picked.id);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [typing, cancel, undo]);
+  // All rebindable in Settings > Shortcuts. Tool keys and undo stand down while a field has focus.
+  const keymap = useKeymap();
+  const active = shot !== null;
+  useShortcut("annotate.cancel", () => (typing ? setTyping(null) : cancel()), { enabled: active, inFields: true });
+  useShortcut("annotate.undo", undo, { enabled: active });
+  useShortcut("annotate.send", () => void submit("companion"), { enabled: active });
+  useShortcut("annotate.tool-pen", () => setTool("pen"), { enabled: active });
+  useShortcut("annotate.tool-box", () => setTool("box"), { enabled: active });
+  useShortcut("annotate.tool-arrow", () => setTool("arrow"), { enabled: active });
+  useShortcut("annotate.tool-text", () => setTool("text"), { enabled: active });
 
   function point(e: React.PointerEvent): Point {
     return { x: e.clientX, y: e.clientY };
@@ -352,14 +349,14 @@ export function AnnotatePage() {
       <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center px-4">
         <div className="pointer-events-auto flex max-w-full min-w-0 animate-rise flex-wrap items-center gap-1.5 rounded-xl border border-border bg-sheet p-1.5 shadow-float">
           <div className="flex items-center gap-0.5" role="toolbar" aria-label="Drawing tools">
-            {TOOLS.map(({ id, label, key, Icon }) => (
+            {TOOLS.map(({ id, label, action, Icon }) => (
               <Button
                 key={id}
                 size="icon-sm"
                 variant="ghost"
                 onClick={() => setTool(id)}
                 aria-pressed={tool === id}
-                title={`${label} (${key})`}
+                title={`${label} (${keysText(keymap.binding(action))})`}
                 aria-label={label}
                 className={cn(tool === id && "bg-muted text-foreground")}
               >
@@ -384,7 +381,14 @@ export function AnnotatePage() {
               />
             ))}
           </div>
-          <Button size="icon-sm" variant="ghost" onClick={undo} disabled={!shapes.length} aria-label="Undo" title="Undo (⌘Z)">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={undo}
+            disabled={!shapes.length}
+            aria-label="Undo"
+            title={`Undo (${keysText(keymap.binding("annotate.undo"))})`}
+          >
             <ArrowCounterClockwise />
           </Button>
           <Button size="icon-sm" variant="ghost" onClick={() => setShapes([])} disabled={!shapes.length} aria-label="Clear" title="Clear marks">
@@ -396,7 +400,7 @@ export function AnnotatePage() {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              if (!e.nativeEvent.isComposing && keymap.matches("annotate.send", e)) {
                 e.preventDefault();
                 void submit("companion");
               }
@@ -413,7 +417,13 @@ export function AnnotatePage() {
             <AppWindow />
             {sending === "app" ? "Opening…" : "New chat"}
           </Button>
-          <Button size="icon-sm" variant="ghost" onClick={cancel} aria-label="Cancel (Esc)" title="Cancel (Esc)">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={cancel}
+            aria-label="Cancel"
+            title={`Cancel (${keysText(keymap.binding("annotate.cancel"))})`}
+          >
             <X />
           </Button>
         </div>
@@ -421,7 +431,8 @@ export function AnnotatePage() {
 
       <div className="pointer-events-none absolute inset-x-0 top-20 flex justify-center px-4">
         <p className="animate-rise rounded-full bg-black/75 px-3 py-1 text-small text-sheet/90 shadow-ambient">
-          Draw on the screen. Boxes light up the area you mean. Enter asks the companion, Esc cancels.
+          Draw on the screen. Boxes light up the area you mean. {keysText(keymap.binding("annotate.send"))} asks the
+          companion, {keysText(keymap.binding("annotate.cancel"))} cancels.
         </p>
       </div>
     </div>

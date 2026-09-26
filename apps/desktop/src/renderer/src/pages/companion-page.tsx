@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
 import { DICTATION_ENGINE_KEY, useDictation } from "@/hooks/use-dictation";
 import { useToast } from "@/hooks/use-toast";
+import { useShortcut } from "@/hooks/use-keymap";
 import type { TextTurn } from "@/hooks/use-chats";
 import { AssistantTurn, PendingTurn, UserTurn } from "@/components/chat/turn";
 import { Composer } from "@/components/chat/composer";
@@ -186,13 +187,7 @@ function Companion() {
     return window.photon.onCompanionPending(() => void drain());
   }, [setScreen, attachments.add]);
 
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !e.defaultPrevented) void window.photon.hideCompanion();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useShortcut("companion.hide", () => void window.photon.hideCompanion(), { inFields: true });
 
   React.useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
