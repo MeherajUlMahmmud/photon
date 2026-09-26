@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  BookOpen,
   CaretRight,
   Check,
   CircleNotch,
@@ -25,6 +26,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string; weigh
   read_file: FileText,
   write_file: PencilSimple,
   bash: Terminal,
+  read_skill_file: BookOpen,
 };
 
 /** Plain-English label for each tool, used in the card header. */
@@ -34,6 +36,7 @@ const TOOL_LABELS: Record<string, string> = {
   read_file: "Read file",
   write_file: "Write file",
   bash: "Run command",
+  read_skill_file: "Read skill file",
 };
 
 /**
@@ -48,6 +51,8 @@ function headline(turn: ToolTurn): string {
       return pick("command");
     case "cs":
       return pick("query");
+    case "read_skill_file":
+      return `/${pick("skill").replace(/^\//, "")}/${pick("path")}`;
     default:
       return pick("path") || ".";
   }
@@ -106,7 +111,7 @@ function OutputBlock({ label, text, tone = "plain" }: { label: string; text: str
     <div className="mt-3">
       <p className="mb-1 font-mono text-micro text-slate">{label}</p>
       <pre
-        className={`max-h-72 overflow-auto rounded-md border px-3 py-2 font-mono text-small whitespace-pre-wrap ${
+        className={`max-h-72 overflow-x-hidden overflow-y-auto rounded-md border px-3 py-2 font-mono text-small whitespace-pre-wrap ${
           tone === "problem" ? "border-black bg-sheet" : "border-input bg-sheet"
         }`}
       >
@@ -154,25 +159,30 @@ export function ToolTurnCard({
   const target = headline(turn);
 
   return (
-    <div className="mr-auto w-full max-w-[75%] pl-11">
-      <div className="rounded-lg border border-input" aria-busy={turn.status === "running" || undefined}>
+    <div className="mr-auto w-full max-w-[90%] animate-rise pl-11 @2xl:max-w-[75%]">
+      <div className="overflow-hidden rounded-lg border border-input bg-sheet" aria-busy={turn.status === "running" || undefined}>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left"
+          className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 active:scale-100 active:bg-muted"
         >
-          <CaretRight weight="bold" className={`size-3 shrink-0 text-slate transition-transform ${open ? "rotate-90" : ""}`} />
+          <CaretRight
+            weight="bold"
+            className={`size-3 shrink-0 text-slate transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+          />
           <Icon weight="bold" className="size-4 shrink-0 text-slate" />
-          <span className="shrink-0 text-small font-medium">{label}</span>
+          <span className="shrink-0 text-small font-medium whitespace-nowrap">{label}</span>
           {target && <span className="min-w-0 flex-1 truncate font-mono text-small text-slate">{target}</span>}
           {!target && <span className="flex-1" />}
-          {turn.durationMs != null && <span className="font-mono text-micro text-slate">{duration(turn.durationMs)}</span>}
+          {turn.durationMs != null && (
+            <span className="shrink-0 font-mono text-micro whitespace-nowrap text-slate">{duration(turn.durationMs)}</span>
+          )}
           <StatusBadge status={turn.status} />
         </button>
 
         {open && (
-          <div className="border-t border-input px-3 py-3">
+          <div className="animate-reveal border-t border-input px-3 py-3">
             <p className="font-mono text-micro text-slate">
               step {turn.step} · {turn.name} · {turn.risk}
             </p>

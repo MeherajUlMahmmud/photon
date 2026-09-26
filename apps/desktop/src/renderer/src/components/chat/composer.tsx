@@ -72,6 +72,11 @@ export function Composer({
   footer,
   dictation,
   skills,
+  compact = false,
+  leading,
+  attachments,
+  onPaste,
+  canSend,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -85,7 +90,17 @@ export function Composer({
   dictation?: DictationControl;
   /** Skills offered by the `/` menu; omit to disable it. */
   skills?: Skill[];
+  /** Tight padding for the companion overlay. */
+  compact?: boolean;
+  /** Controls left of the input, e.g. the attach button. */
+  leading?: React.ReactNode;
+  /** Shown above the input: the attachment tray. */
+  attachments?: React.ReactNode;
+  onPaste?: (e: React.ClipboardEvent) => void;
+  /** Overrides "has text" for enabling Send, e.g. when only attachments are queued. */
+  canSend?: boolean;
 }) {
+  const sendable = canSend ?? Boolean(value.trim());
   const recording = dictation?.state === "recording";
   const preparing = dictation?.state === "preparing";
 
@@ -139,9 +154,11 @@ export function Composer({
   }
 
   return (
-    <div className="px-8 pb-6 md:px-14">
-      {actions && <div className="mb-2 flex items-center justify-end gap-1">{actions}</div>}
-      <div className="relative flex items-end gap-2">
+    <div className={compact ? "px-3 pb-3" : "px-5 pb-6 @2xl:px-14"}>
+      {actions && <div className="mb-2 flex min-w-0 flex-wrap items-center justify-end gap-1">{actions}</div>}
+      {attachments && <div className="mb-2 min-w-0">{attachments}</div>}
+      <div className="relative flex min-w-0 items-end gap-2" onPaste={onPaste}>
+        {leading}
         {menuOpen && (
           <SkillMenu skills={matches} query={query ?? ""} activeIndex={active} onHover={setActive} onPick={pick} />
         )}
@@ -155,7 +172,7 @@ export function Composer({
           placeholder={recording ? "Listening…" : preparing ? progressLabel(dictation.progress) + "…" : placeholder}
           disabled={disabled}
           rows={1}
-          className="flex-1"
+          className="min-w-0 flex-1"
           textareaClassName="max-h-48 min-h-11 resize-none"
         />
         {dictation && <DictationButton {...dictation} disabled={disabled} />}
@@ -164,7 +181,7 @@ export function Composer({
             <Stop weight="fill" />
           </Button>
         ) : (
-          <Button size="icon" onClick={onSend} disabled={disabled || recording || !value.trim()} aria-label="Send">
+          <Button size="icon" onClick={onSend} disabled={disabled || recording || !sendable} aria-label="Send">
             <ArrowUp weight="bold" />
           </Button>
         )}

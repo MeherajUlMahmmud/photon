@@ -1,3 +1,6 @@
+import * as React from "react";
+
+import { acceleratorKeys, isMac } from "@/lib/accelerator";
 import { Page, SectionTitle } from "@/components/layout/page";
 
 const SHORTCUTS: Array<{ keys: string[]; what: string }> = [
@@ -20,24 +23,41 @@ const FAQ: Array<{ q: string; a: string }> = [
     a: "The one picked at the top of the page. If that request fails, the server tries the next provider you have a key for, unless you also picked a specific model, in which case it stops.",
   },
   {
+    q: "What does the companion see?",
+    a: "One picture of the screen under your pointer, taken the moment you press its shortcut. It goes to your provider with your next message only and is never saved; the server logs just that an image was sent. The first time, macOS asks to allow Screen Recording for Photon; quit and reopen Photon after allowing it. Change the shortcut or turn this off in Settings, Companion.",
+  },
+  {
+    q: "How do I point at something on screen?",
+    a: "Hold Control and keep the left mouse button down for half a second, or press Option Shift Space. The screen freezes under a dark tint; draw boxes, arrows or notes on it, then ask the companion or start a chat. The mouse gesture needs Accessibility permission on a Mac (Settings, Companion).",
+  },
+  {
     q: "It says the server is not answering.",
     a: "Start it from the repo root with pnpm server. The app looks for it at http://127.0.0.1:8080 unless PHOTON_API_URL points somewhere else.",
   },
 ];
 
 export function HelpPage() {
+  // The companion shortcut is configurable, so it is read live rather than listed above.
+  const [companionShortcut, setCompanionShortcut] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    void window.photon.companionInfo().then((info) => setCompanionShortcut(info.shortcut));
+  }, []);
+  const shortcuts = companionShortcut
+    ? [{ keys: acceleratorKeys(companionShortcut, isMac()), what: "Ask the companion about your screen, from any app" }, ...SHORTCUTS]
+    : SHORTCUTS;
+
   return (
     <Page title="Shortcuts and answers">
       <div className="grid gap-14">
         <section>
           <SectionTitle className="mb-5">Keyboard</SectionTitle>
           <dl className="max-w-lg">
-            {SHORTCUTS.map((s) => (
+            {shortcuts.map((s) => (
               <div key={s.what} className="flex items-center justify-between gap-6 py-2.5">
                 <dt>{s.what}</dt>
                 <dd className="flex gap-1">
-                  {s.keys.map((k) => (
-                    <kbd key={k}>{k}</kbd>
+                  {s.keys.map((k, i) => (
+                    <kbd key={i}>{k}</kbd>
                   ))}
                 </dd>
               </div>

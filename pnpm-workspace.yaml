@@ -8,3 +8,5 @@ allowBuilds:
   esbuild: true
   onnxruntime-node: false
   protobufjs: false
+  # Ships N-API prebuilds for every platform; its node-gyp fallback is not needed.
+  uiohook-napi: false

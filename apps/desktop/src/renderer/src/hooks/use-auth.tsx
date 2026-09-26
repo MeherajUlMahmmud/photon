@@ -1,7 +1,7 @@
 import * as React from "react";
 import type { AuthUser, RegisterInput, Tokens, WithTokens } from "../../../preload/api";
 
-import { loadTokens, saveTokens } from "@/lib/tokens";
+import { loadTokens, saveTokens, TOKEN_KEY } from "@/lib/tokens";
 import { errorMessage } from "@/lib/utils";
 
 type AuthStatus = "booting" | "offline" | "anonymous" | "authenticated";
@@ -84,6 +84,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     void boot();
+  }, [boot]);
+
+  // The main window and the companion share one token pair through storage.
+  // A `storage` event means the other window rotated, signed in or signed out.
+  React.useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== TOKEN_KEY) return;
+      const next = loadTokens();
+      const wasSignedIn = tokensRef.current !== null;
+      tokensRef.current = next;
+      setTokensState(next);
+      if (!next) {
+        setUser(null);
+        setStatus("anonymous");
+      } else if (!wasSignedIn) {
+        void boot();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [boot]);
 
   const login = React.useCallback(

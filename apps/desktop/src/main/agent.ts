@@ -32,11 +32,14 @@ type StepEvent =
       pending_tool_calls: PendingCall[];
       /** Calls the server refused itself (unknown tool name); already answered in the transcript. */
       rejected_tool_calls: RejectedCall[];
+      /** Server-side tools (read_skill_file) the server ran itself; shown as cards, nothing to run here. */
+      resolved_tool_calls?: ResolvedCall[];
     }
   | { type: "error"; message: string };
 
 type PendingCall = { call_id: string; name: string; input: Record<string, unknown>; risk: ToolRisk };
 type RejectedCall = { call_id: string; name: string; input: Record<string, unknown>; error: string };
+type ResolvedCall = PendingCall & { ok: boolean; output: string; error: string };
 
 /** What goes back to the server for each pending call. `error: "denied"` is the server's cue for a refusal. */
 type ToolResult = { call_id: string; ok: boolean; output?: string; error?: string };
@@ -104,6 +107,14 @@ export class AgentTurn {
       for (const call of done.rejected_tool_calls ?? []) {
         this.deps.emit({ type: "tool_call", call_id: call.call_id, name: call.name, input: call.input, risk: "destructive" });
         this.deps.emit({ type: "tool_result", call_id: call.call_id, ok: false, output: "", error: call.error, duration_ms: 0, denied: false });
+      }
+
+      for (const call of done.resolved_tool_calls ?? []) {
+        this.deps.emit({ type: "tool_call", call_id: call.call_id, name: call.name, input: call.input, risk: call.risk });
+        this.deps.emit({
+          type: "tool_result", call_id: call.call_id, ok: call.ok, output: call.output,
+          error: call.ok ? "" : call.error, duration_ms: 0, denied: false,
+        });
       }
 
       // Announce every call first so the UI shows the full plan of this step,

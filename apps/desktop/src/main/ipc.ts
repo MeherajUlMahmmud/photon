@@ -15,6 +15,7 @@ import type {
   DirEntry,
   FileContent,
   FileStat,
+  InstalledSkill,
   LlmCall,
   LlmCallDetails,
   LlmCallQuery,
@@ -489,7 +490,7 @@ export function registerIpc(deps: IpcDeps): void {
   );
 
   ipcMain.handle("ai:installSkill", (_e, tokens: Tokens, input: SkillInstallInput) =>
-    withTokens(tokens, (opts) => api.request<Skill>("POST", "/api/ai/skill/install/", { ...opts, body: input })),
+    withTokens(tokens, (opts) => api.request<InstalledSkill>("POST", "/api/ai/skill/install/", { ...opts, body: input })),
   );
 
   ipcMain.handle("ai:updateSkill", (_e, tokens: Tokens, name: string, markdown: string) =>

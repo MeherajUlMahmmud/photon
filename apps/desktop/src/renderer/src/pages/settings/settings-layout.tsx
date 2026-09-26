@@ -7,6 +7,7 @@ const SECTIONS = [
   { to: "/settings", label: "Model", end: true },
   { to: "/settings/providers", label: "API keys" },
   { to: "/settings/skills", label: "Skills" },
+  { to: "/settings/companion", label: "Companion" },
   { to: "/settings/account", label: "Account" },
   { to: "/settings/security", label: "Password" },
 ];
@@ -23,7 +24,7 @@ export function SettingsLayout() {
               end={s.end}
               className={({ isActive }) =>
                 cn(
-                  "-ml-3 rounded-md px-3 py-1 text-body transition-colors",
+                  "-ml-3 rounded-md px-3 py-1 text-body press",
                   isActive ? "bg-sheet font-medium text-foreground" : "text-slate hover:text-foreground",
                 )
               }

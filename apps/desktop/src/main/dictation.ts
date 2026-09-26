@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -29,12 +29,15 @@ function status(): LocalDictationStatus {
   return { downloaded: modelDownloaded(), loaded: pipelinePromise !== null };
 }
 
-async function loadPipeline(getWindow: () => BrowserWindow | null): Promise<Pipeline> {
+async function loadPipeline(): Promise<Pipeline> {
   const { pipeline, env } = await import("@huggingface/transformers");
   env.cacheDir = modelsDir();
   env.allowLocalModels = false;
 
-  const emit = (p: LocalDictationProgress) => getWindow()?.webContents.send(PROGRESS_CHANNEL, p);
+  // Every window may be dictating (main window, companion), so progress goes to all of them.
+  const emit = (p: LocalDictationProgress) => {
+    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(PROGRESS_CHANNEL, p);
+  };
   const wasDownloaded = modelDownloaded();
 
   const pipe = await pipeline("automatic-speech-recognition", MODEL_ID, {
@@ -52,9 +55,9 @@ async function loadPipeline(getWindow: () => BrowserWindow | null): Promise<Pipe
   return pipe as unknown as Pipeline;
 }
 
-function getPipeline(getWindow: () => BrowserWindow | null): Promise<Pipeline> {
+function getPipeline(): Promise<Pipeline> {
   if (!pipelinePromise) {
-    pipelinePromise = loadPipeline(getWindow).catch((err) => {
+    pipelinePromise = loadPipeline().catch((err) => {
       pipelinePromise = null;
       throw err;
     });
@@ -62,16 +65,16 @@ function getPipeline(getWindow: () => BrowserWindow | null): Promise<Pipeline> {
   return pipelinePromise;
 }
 
-export function registerDictationIpc(getWindow: () => BrowserWindow | null): void {
+export function registerDictationIpc(): void {
   ipcMain.handle("dictation:local:status", () => status());
 
   ipcMain.handle("dictation:local:prepare", async () => {
-    await getPipeline(getWindow);
+    await getPipeline();
     return status();
   });
 
   ipcMain.handle("dictation:local:transcribe", async (_e, pcm: Float32Array, language?: string) => {
-    const pipe = await getPipeline(getWindow);
+    const pipe = await getPipeline();
     const opts: Record<string, unknown> = { task: "transcribe", chunk_length_s: 30, stride_length_s: 5 };
     if (language) opts.language = language;
     const out = await pipe(pcm, opts);

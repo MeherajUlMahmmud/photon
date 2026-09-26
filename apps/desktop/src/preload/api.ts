@@ -67,7 +67,82 @@ export type ProviderTestResult = {
  * One transcript line. A user message may name a `skill`: the server splices
  * that skill's instructions in and treats `content` as its arguments.
  */
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string; skill?: string };
+export type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+  skill?: string;
+  /** Inline images for this user message only (companion screenshots). The server passes them to the model and never stores them. */
+  images?: ChatImage[];
+};
+
+/** A base64 image attached to a user message. */
+export type ChatImage = { media_type: "image/png" | "image/jpeg" | "image/webp"; data: string };
+
+/** Whether this app may read the screen. macOS asks once; elsewhere it is always `granted`. */
+export type ScreenPermission = "granted" | "denied" | "not-determined" | "restricted" | "unknown";
+
+/** One capture of the display under the pointer, downscaled for the model. */
+export type Screenshot = {
+  image: ChatImage;
+  width: number;
+  height: number;
+  /** Epoch ms. */
+  capturedAt: number;
+};
+
+/** A capture attempt: `screenshot` is null when permission is missing or capture failed. */
+export type CaptureResult = { screenshot: Screenshot | null; permission: ScreenPermission };
+
+/** Companion preferences, stored per machine by main. */
+export type CompanionSettings = {
+  /** Off: no global shortcut, overlay hidden, tray keeps only "Open Photon". */
+  enabled: boolean;
+  /** Electron accelerator, e.g. "Alt+Space" or "Command+Shift+K". */
+  shortcut: string;
+  /** Take a screenshot each time the shortcut opens the overlay. */
+  captureOnOpen: boolean;
+  /** Hide the overlay when another app takes focus. */
+  hideOnBlur: boolean;
+  /** Ctrl + long press of the left mouse button opens the annotate overlay (needs Accessibility on macOS). */
+  annotateGesture: boolean;
+  /** Keyboard alternative for the annotate overlay. */
+  annotateShortcut: string;
+};
+
+/** macOS Accessibility trust, which the global mouse gesture needs. Always `granted` elsewhere. */
+export type AccessibilityPermission = "granted" | "denied";
+
+/** The floating companion's setup, for the overlay, Settings and Help. */
+export type CompanionInfo = {
+  settings: CompanionSettings;
+  /** Accelerator actually registered; null when the companion is off or the shortcut is taken. */
+  shortcut: string | null;
+  permission: ScreenPermission;
+  /** Why the last shortcut change or registration failed, if it did. */
+  shortcutError: string | null;
+  annotate: {
+    /** Registered annotate accelerator, or null. */
+    shortcut: string | null;
+    shortcutError: string | null;
+    /** True while the global mouse hook is listening for Ctrl + long press. */
+    gestureActive: boolean;
+    accessibility: AccessibilityPermission;
+  };
+};
+
+/** An image handed to the companion from outside (the annotate overlay), with an optional question to send right away. */
+export type CompanionAttachment = { image: ChatImage; name: string; note: string };
+
+/** What the overlay has not picked up yet: the last summon's capture and any handed-in images. */
+export type CompanionPending = { capture?: CaptureResult; attach?: CompanionAttachment[] };
+
+/** Where the annotate overlay sends its picture. */
+export type AnnotationTarget = "companion" | "app";
+
+export type AnnotationSubmit = { image: ChatImage; note: string; target: AnnotationTarget };
+
+/** An annotated screenshot arriving in the main window: opens a new chat with it. */
+export type AppAnnotation = { image: ChatImage; note: string };
 
 /**
  * A reusable prompt installed from a pasted Markdown file and invoked as
@@ -78,13 +153,23 @@ export type Skill = {
   name: string;
   description: string;
   content: string;
+  /** Text files that came in the skill's zip; the model reads them with the server-side `read_skill_file` tool. */
+  files: SkillFile[];
   created_at: string;
   updated_at: string;
 };
 
+export type SkillFile = { path: string; size: number };
+
+/** Install reply: for a zip, `skipped_files` lists entries left out and why ("logo.png (not text)"). */
+export type InstalledSkill = Skill & { skipped_files?: string[] };
+
+/** Send exactly one of `markdown` or `archive`. */
 export type SkillInstallInput = {
   /** The whole file: optional `---` front matter with `name` / `description`, then the instructions. */
-  markdown: string;
+  markdown?: string;
+  /** Base64 zip of a skill folder: `SKILL.md` plus references, templates or scripts (stored, never run). */
+  archive?: string;
   /** Overrides the name in the file. */
   name?: string;
   /** Update a skill of the same name instead of failing. */
@@ -339,8 +424,41 @@ export type PhotonApi = {
   getLlmCall: (tokens: Tokens, id: string) => Promise<WithTokens<LlmCallDetails>>;
   /** Skills, in name order. */
   listSkills: (tokens: Tokens) => Promise<WithTokens<Skill[]>>;
-  installSkill: (tokens: Tokens, input: SkillInstallInput) => Promise<WithTokens<Skill>>;
+  installSkill: (tokens: Tokens, input: SkillInstallInput) => Promise<WithTokens<InstalledSkill>>;
   /** Replaces the file behind a skill; a different `name` in the file renames it. */
   updateSkill: (tokens: Tokens, name: string, markdown: string) => Promise<WithTokens<Skill>>;
   deleteSkill: (tokens: Tokens, name: string) => Promise<WithTokens<boolean>>;
+  /** Companion overlay: settings, active shortcut and screen permission. */
+  companionInfo: () => Promise<CompanionInfo>;
+  /** Saves a partial change. A shortcut the OS refuses is not saved; `shortcutError` says why. */
+  setCompanionSettings: (patch: Partial<CompanionSettings>) => Promise<CompanionInfo>;
+  /** Releases the global shortcut while Settings records a new one, so pressing it doesn't open the overlay. */
+  suspendCompanionShortcut: (suspended: boolean) => Promise<void>;
+  /** Captures the display under the pointer; the overlay hides itself from the shot. */
+  captureScreen: () => Promise<CaptureResult>;
+  /** Hides the overlay (Esc). */
+  hideCompanion: () => Promise<void>;
+  /** Shows the overlay from the main window, capturing the screen first. */
+  showCompanion: () => Promise<void>;
+  /** Brings the main window forward, creating it if it was closed. */
+  openMainWindow: () => Promise<void>;
+  /** Opens the system screen-recording privacy pane (macOS). */
+  openScreenPermissionSettings: () => Promise<void>;
+  /** Fired in the overlay when a summon or hand-off is waiting; call `takeCompanionPending` to collect it. */
+  onCompanionPending: (listener: () => void) => () => void;
+  /** Collects (and clears) the waiting capture and attachments. Also call it on mount: a ping may predate the listener. */
+  takeCompanionPending: () => Promise<CompanionPending>;
+  /** Opens the annotate overlay now (from Settings or the tray). */
+  startAnnotation: () => Promise<void>;
+  /** Asks macOS for Accessibility trust (shows the system prompt) and starts the mouse hook once granted. */
+  requestAccessibility: () => Promise<CompanionInfo>;
+  /** Annotate overlay: fired when a screenshot is waiting; collect it with `takeAnnotationShot` (also on mount). */
+  onAnnotateStart: (listener: () => void) => () => void;
+  /** The full-resolution screenshot to draw on, once; null when none is waiting. */
+  takeAnnotationShot: () => Promise<Screenshot | null>;
+  submitAnnotation: (input: AnnotationSubmit) => Promise<void>;
+  cancelAnnotation: () => Promise<void>;
+  /** Main window: fired when an annotated screenshot is waiting; collect it with `takeAppAnnotation` (also on mount). */
+  onAppAnnotation: (listener: () => void) => () => void;
+  takeAppAnnotation: () => Promise<AppAnnotation | null>;
 };

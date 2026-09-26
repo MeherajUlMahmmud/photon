@@ -12,18 +12,25 @@ import { SettingsLayout } from "@/pages/settings/settings-layout";
 import { GeneralSettingsPage } from "@/pages/settings/general-page";
 import { ProvidersSettingsPage } from "@/pages/settings/providers-page";
 import { SkillsSettingsPage } from "@/pages/settings/skills-page";
+import { CompanionSettingsPage } from "@/pages/settings/companion-page";
 import { AccountSettingsPage } from "@/pages/settings/account-page";
 import { SecuritySettingsPage } from "@/pages/settings/security-page";
 import { HelpPage } from "@/pages/help-page";
+import { CompanionPage } from "@/pages/companion-page";
+import { AnnotatePage } from "@/pages/annotate-page";
 import { NotFoundPage } from "@/pages/not-found-page";
 
 // Hash routing: the production renderer is loaded from file://, where
 // history-based URLs have no server to fall back to.
 export const router = createHashRouter([
+  // The annotate overlay draws on a screenshot; it needs neither the server nor a session.
+  { path: "/annotate", element: <AnnotatePage /> },
   {
     element: <BootGate />,
     errorElement: <RouteErrorBoundary />,
     children: [
+      // The floating companion window: no app shell, signs in through the main window.
+      { path: "/companion", element: <CompanionPage /> },
       {
         element: <AuthLayout />,
         children: [
@@ -47,6 +54,7 @@ export const router = createHashRouter([
               { index: true, element: <GeneralSettingsPage /> },
               { path: "providers", element: <ProvidersSettingsPage /> },
               { path: "skills", element: <SkillsSettingsPage /> },
+              { path: "companion", element: <CompanionSettingsPage /> },
               { path: "account", element: <AccountSettingsPage /> },
               { path: "security", element: <SecuritySettingsPage /> },
             ],

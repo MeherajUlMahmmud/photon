@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CaretDown, FileText } from "@phosphor-icons/react";
+import { CaretDown, FileText, FileZip, X } from "@phosphor-icons/react";
 import type { Skill } from "../../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -24,15 +24,35 @@ function toMarkdown(skill: Skill): string {
   return `---\nname: ${skill.name}\ndescription: "${skill.description.replace(/"/g, '\\"')}"\n---\n${skill.content}\n`;
 }
 
-/** Reads a dropped or chosen `.md` file into the textarea. */
-async function readTextFile(file: File): Promise<string> {
-  return file.text();
+/** Zips over this are refused by the server; say so before uploading. */
+const MAX_ZIP_BYTES = 5 * 1024 * 1024;
+
+type PickedZip = { name: string; size: number; base64: string };
+
+const isZip = (file: File) => file.name.toLowerCase().endsWith(".zip") || file.type.includes("zip");
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Base64 without blowing the call stack on multi-megabyte files. */
+async function toBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
 }
 
 function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
   const { call } = useAuth();
   const { toast } = useToast();
   const [markdown, setMarkdown] = React.useState("");
+  const [zip, setZip] = React.useState<PickedZip | null>(null);
+  const [skipped, setSkipped] = React.useState<string[]>([]);
   const [name, setName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -41,16 +61,21 @@ function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
 
   async function install(replace = false) {
     const text = markdown.trim();
-    if (!text) return;
+    if (!text && !zip) return;
     setBusy(true);
     setError(null);
+    setSkipped([]);
     try {
+      const source = zip ? { archive: zip.base64 } : { markdown: text };
       const skill = await call((t) =>
-        window.photon.installSkill(t, { markdown: text, name: name.trim() || undefined, replace }),
+        window.photon.installSkill(t, { ...source, name: name.trim() || undefined, replace }),
       );
       setMarkdown("");
+      setZip(null);
       setName("");
-      toast(`Installed /${skill.name}`);
+      setSkipped(skill.skipped_files ?? []);
+      const count = skill.files?.length ?? 0;
+      toast(`Installed /${skill.name}${count ? ` with ${count} file${count === 1 ? "" : "s"}` : ""}`);
       onInstalled(skill);
     } catch (err) {
       setError(errorMessage(err));
@@ -61,9 +86,20 @@ function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
 
   async function takeFile(file: File | undefined) {
     if (!file) return;
+    setError(null);
+    setSkipped([]);
     try {
-      setMarkdown(await readTextFile(file));
-      setError(null);
+      if (isZip(file)) {
+        if (file.size > MAX_ZIP_BYTES) {
+          setError(`${file.name} is ${formatSize(file.size)}. Skill zips can be at most 5 MB.`);
+          return;
+        }
+        setZip({ name: file.name, size: file.size, base64: await toBase64(file) });
+        setMarkdown("");
+      } else {
+        setMarkdown(await file.text());
+        setZip(null);
+      }
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -89,20 +125,40 @@ function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
         void takeFile(e.dataTransfer.files[0]);
       }}
     >
-      <TextareaField
-        name="skill_markdown"
-        label="Skill file"
-        hideLabel
-        value={markdown}
-        onChange={(e) => {
-          setMarkdown(e.target.value);
-          if (error) setError(null);
-        }}
-        placeholder={EXAMPLE}
-        rows={8}
-        disabled={busy}
-        textareaClassName={cn("font-mono text-small", dragging && "border-verdigris ring-2 ring-verdigris/25")}
-      />
+      {zip ? (
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-3 rounded-md border border-input bg-sheet px-3 py-3 transition-colors duration-150",
+            dragging && "border-verdigris ring-2 ring-verdigris/25",
+          )}
+        >
+          <FileZip weight="bold" className="size-5 shrink-0 text-slate" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-mono text-small">{zip.name}</p>
+            <p className="text-micro text-slate">
+              {formatSize(zip.size)}. SKILL.md becomes the skill; other text files are kept for the model to read.
+            </p>
+          </div>
+          <Button type="button" size="icon-sm" variant="ghost" onClick={() => setZip(null)} disabled={busy} aria-label="Remove zip">
+            <X />
+          </Button>
+        </div>
+      ) : (
+        <TextareaField
+          name="skill_markdown"
+          label="Skill file"
+          hideLabel
+          value={markdown}
+          onChange={(e) => {
+            setMarkdown(e.target.value);
+            if (error) setError(null);
+          }}
+          placeholder={EXAMPLE}
+          rows={8}
+          disabled={busy}
+          textareaClassName={cn("font-mono text-small", dragging && "border-verdigris ring-2 ring-verdigris/25")}
+        />
+      )}
       <div className="flex flex-wrap items-end gap-2">
         <InputField
           name="skill_name"
@@ -119,7 +175,7 @@ function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
         <input
           ref={fileRef}
           type="file"
-          accept=".md,.markdown,.txt,text/markdown,text/plain"
+          accept=".md,.markdown,.txt,.zip,text/markdown,text/plain,application/zip"
           className="hidden"
           onChange={(e) => {
             void takeFile(e.target.files?.[0]);
@@ -128,14 +184,14 @@ function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
         />
         <Button type="button" variant="outline" onClick={() => fileRef.current?.click()} disabled={busy}>
           <FileText weight="bold" />
-          Choose file
+          Choose .md or .zip
         </Button>
         {duplicate ? (
           <Button type="button" onClick={() => void install(true)} disabled={busy}>
             {busy ? "Replacing" : "Replace existing"}
           </Button>
         ) : (
-          <Button type="submit" disabled={!markdown.trim() || busy}>
+          <Button type="submit" disabled={(!markdown.trim() && !zip) || busy}>
             {busy ? "Installing" : "Install"}
           </Button>
         )}
@@ -144,6 +200,18 @@ function InstallForm({ onInstalled }: { onInstalled: (skill: Skill) => void }) {
         <p role="alert" className="text-small text-destructive">
           {error}
         </p>
+      )}
+      {skipped.length > 0 && (
+        <div className="text-small text-slate">
+          <p>Left out of the zip:</p>
+          <ul className="mt-1 list-disc pl-5 break-words">
+            {skipped.map((s) => (
+              <li key={s} className="font-mono text-micro">
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </form>
   );
@@ -200,11 +268,11 @@ function SkillCard({ skill, onChanged }: { skill: Skill; onChanged: () => void }
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/60"
+        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/60 active:scale-100 active:bg-muted"
       >
         <CaretDown
           weight="bold"
-          className={cn("mt-1 size-3.5 shrink-0 text-slate transition-transform", !open && "-rotate-90")}
+          className={cn("mt-1 size-3.5 shrink-0 text-slate transition-transform duration-150", !open && "-rotate-90")}
         />
         <div className="min-w-0 flex-1">
           <p className="font-mono text-body">/{skill.name}</p>
@@ -212,7 +280,7 @@ function SkillCard({ skill, onChanged }: { skill: Skill; onChanged: () => void }
         </div>
       </button>
       {open && (
-        <div className="grid gap-3 border-t border-border px-4 py-3">
+        <div className="grid animate-reveal gap-3 border-t border-border px-4 py-3">
           {editing ? (
             <>
               <TextareaField
@@ -241,9 +309,27 @@ function SkillCard({ skill, onChanged }: { skill: Skill; onChanged: () => void }
             </>
           ) : (
             <>
-              <pre className="max-h-96 overflow-auto rounded-md bg-background p-3 font-mono text-small whitespace-pre-wrap">
+              <pre className="max-h-96 overflow-x-hidden overflow-y-auto rounded-md bg-background p-3 font-mono text-small break-words whitespace-pre-wrap">
                 {skill.content}
               </pre>
+              {skill.files?.length > 0 && (
+                <div>
+                  <p className="text-small font-medium">
+                    {skill.files.length} bundled file{skill.files.length === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-micro text-slate">
+                    The model reads these on demand in workspace chats. Nothing in them runs.
+                  </p>
+                  <ul className="mt-2 grid gap-0.5">
+                    {skill.files.map((f) => (
+                      <li key={f.path} className="flex min-w-0 items-baseline justify-between gap-3 font-mono text-micro">
+                        <span className="min-w-0 break-all">{f.path}</span>
+                        <span className="shrink-0 text-slate">{formatSize(f.size)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-slate">
                   Type <span className="font-mono">/{skill.name}</span> in a chat to use it.
@@ -286,7 +372,7 @@ export function SkillsSettingsPage() {
     <>
       <SettingsSection
         title="Install a skill"
-        description="Paste a skill file: optional front matter with name and description, then the instructions in Markdown. $ARGUMENTS stands for whatever you type after the command. Then type / in any chat to use it."
+        description="Paste a skill file, or drop a .md or a .zip of a skill folder (SKILL.md plus references). Front matter gives the name and description; $ARGUMENTS stands for whatever you type after the command. Then type / in any chat to use it."
       >
         <InstallForm onInstalled={reload} />
       </SettingsSection>

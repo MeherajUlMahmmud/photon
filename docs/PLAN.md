@@ -28,6 +28,7 @@ Photon is a desktop app where you open a **workspace folder** and an agent finis
 | Auth (cloud later) | Account required only when enabling sync / remote runs — **Better Auth** or Clerk + device linking |
 | Data (V1) | **SQLite (dev) / Postgres (prod)** owned by the Django server (app data + Fernet-encrypted secrets + run telemetry) + **workspace folder** on disk; Fernet master key from `FERNET_KEY` |
 | Data (cloud later) | **Postgres** account/metadata + object storage for remote artifacts; local SQLite remains source of truth for on-device work |
+| Companion | Global-shortcut overlay that sees the screen **on ask only** (one screenshot per summon, attached to the next message, never stored). Continuous watching and screen control stay out of scope |
 | Observability | **Structured run logging** in SQLite (and optional JSONL export): every query/response, tokens, tools, latency, model, files touched |
 
 ---
@@ -421,7 +422,7 @@ sequenceDiagram
 ### Explicit non-goals (V1)
 
 - Dedicated `read_file` / `write_file` tools (file edits go through `bash` for now; can add later)
-- Screen control / computer use
+- Screen control / computer use (reading the screen on ask is in scope via the companion; acting on it is not)
 - Embedded browser automation
 - MCP / connectors
 - Cloud VM / background when closed

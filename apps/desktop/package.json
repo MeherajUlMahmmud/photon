@@ -6,11 +6,12 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
-    "build": "electron-vite build",
+    "build": "node ./scripts/fetch-fonts.js && electron-vite build",
     "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-    "test": "node --import tsx --test src/main/*.test.ts",
-    "postinstall": "node ./scripts/ensure-electron.js"
+    "test": "node --import tsx --test src/main/*.test.ts src/renderer/src/lib/*.test.ts",
+    "postinstall": "node ./scripts/ensure-electron.js && node ./scripts/fetch-fonts.js",
+    "fonts": "node ./scripts/fetch-fonts.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.0",
@@ -39,6 +40,7 @@
     "react-router-dom": "^7.18.4",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.7.0",
+    "uiohook-napi": "^1.5.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {

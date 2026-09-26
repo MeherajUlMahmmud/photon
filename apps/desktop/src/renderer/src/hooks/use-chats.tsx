@@ -1,9 +1,13 @@
 import * as React from "react";
-import type { AgentEvent, ApprovalDecision, ChatMessage, CompletionEvent, ToolRisk } from "../../../preload/api";
+import type { AgentEvent, ApprovalDecision, ChatImage, ChatMessage, CompletionEvent, ToolRisk } from "../../../preload/api";
+import type { AttachedFile } from "@/lib/attachments";
 
 import { useAuth } from "@/hooks/use-auth";
 import { invocationLabel } from "@/lib/skills";
+import { withFiles } from "@/lib/attachments";
 import { errorMessage } from "@/lib/utils";
+
+export type { AttachedFile };
 
 /**
  * A user message or an assistant reply. A user turn that invoked a skill
@@ -15,6 +19,10 @@ export type TextTurn = ChatMessage & {
   at?: number;
   /** True while the reply is still arriving; never persisted as true. */
   streaming?: boolean;
+  /** Text files attached to a user message (plain chats); resent with it on every request. */
+  files?: AttachedFile[];
+  /** Images are kept in memory only; once saved, a turn remembers how many it had. */
+  imageCount?: number;
   /** Which model step of the agent turn produced this reply (workspace chats only). */
   step?: number;
   meta?: {
@@ -86,6 +94,9 @@ type SendOptions = {
   spaceId?: string;
   /** Name of the skill the message invokes; `content` is then its arguments and may be empty. */
   skill?: string;
+  /** Plain chats only: images for this message (sent once, never saved) and text files (kept with the turn). */
+  images?: ChatImage[];
+  files?: AttachedFile[];
 };
 
 type ChatsContextValue = {
@@ -144,9 +155,11 @@ function settleTurn(t: Turn): Turn {
       ? t
       : { ...t, status: "failed", error: t.error || "Interrupted before it finished" };
   }
-  const { streaming: _, ...rest } = t;
-  return rest;
+  // Screenshots and pictures never reach storage; the turn keeps a count so the history can say so.
+  const { streaming: _, images, ...rest } = t;
+  return images?.length ? { ...rest, imageCount: images.length } : rest;
 }
+
 
 function newId() {
   return typeof crypto.randomUUID === "function"
@@ -355,7 +368,14 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
 
   const send = React.useCallback(
     (id: string | null, content: string, opts: SendOptions) => {
-      const userTurn: Turn = opts.skill ? { role: "user", content, skill: opts.skill, at: Date.now() } : { role: "user", content, at: Date.now() };
+      const userTurn: Turn = {
+        role: "user",
+        content,
+        at: Date.now(),
+        ...(opts.skill ? { skill: opts.skill } : {}),
+        ...(opts.images?.length ? { images: opts.images } : {}),
+        ...(opts.files?.length ? { files: opts.files } : {}),
+      };
       let chatId = id;
       let history: Turn[];
 
@@ -455,9 +475,15 @@ export function ChatsProvider({ children }: { children: React.ReactNode }) {
                 { role: "system", content: SYSTEM_PROMPT },
                 // Plain chats never hold tool turns; the filter keeps the types honest.
                 // A skill turn is re-sent as `skill` + arguments so the server expands it again.
+                // Files go back every time; images only with the message they were attached to.
                 ...history
                   .filter((t): t is TextTurn => t.role !== "tool")
-                  .map(({ role, content, skill }) => (skill ? { role, content, skill } : { role, content })),
+                  .map(({ role, content, skill, files, images }, i, all) => ({
+                    role,
+                    content: withFiles(content, files),
+                    ...(skill ? { skill } : {}),
+                    ...(images?.length && i === all.length - 1 ? { images } : {}),
+                  })),
               ],
               provider: opts.provider,
               model: opts.model,

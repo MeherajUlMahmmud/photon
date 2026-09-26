@@ -1,6 +1,7 @@
 import type { Tokens } from "../../../preload/api";
 
-const TOKEN_KEY = "photon.auth.tokens";
+/** Shared by every window of the app (same origin), so the companion signs in with the main window. */
+export const TOKEN_KEY = "photon.auth.tokens";
 
 export function loadTokens(): Tokens | null {
   try {

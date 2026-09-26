@@ -1,13 +1,14 @@
 import * as React from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { SidebarSimple } from "@phosphor-icons/react";
-import type { DictationEngine, LlmProvider } from "../../../preload/api";
+import type { AppAnnotation, DictationEngine } from "../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useAsync } from "@/hooks/use-async";
 import { useChats, type Turn } from "@/hooks/use-chats";
 import { useSkills } from "@/hooks/use-skills";
 import { parseInvocation } from "@/lib/skills";
+import { resolveModel, type ModelPick as Pick } from "@/lib/models";
 import { useStoredFlag } from "@/hooks/use-stored-flag";
 import { DICTATION_ENGINE_KEY, useDictation } from "@/hooks/use-dictation";
 import { useToast } from "@/hooks/use-toast";
@@ -17,10 +18,11 @@ import { AssistantTurn, PendingTurn, UserTurn } from "@/components/chat/turn";
 import { ToolTurnCard } from "@/components/chat/tool-turn";
 import { Composer } from "@/components/chat/composer";
 import { ModelPicker } from "@/components/chat/model-picker";
+import { AttachButton, AttachmentTray, DropZone, useAttachments } from "@/components/chat/attachments";
+import { newAttachmentId, splitAttachments, type Attachment } from "@/lib/attachments";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-type Pick = { provider: string; model: string };
 
 /** The "waiting" row hides while text is arriving or a tool card is already showing progress. */
 function isStreaming(turn: Turn | undefined): boolean {
@@ -29,16 +31,6 @@ function isStreaming(turn: Turn | undefined): boolean {
   return Boolean(turn.streaming);
 }
 
-/**
- * Resolves the provider and model to use from a pick that may be stale: the
- * picked provider may have lost its key, or the model id may be empty.
- */
-function resolveModel(ready: LlmProvider[], pick: Pick | null) {
-  const current = ready.find((p) => p.provider === pick?.provider) ?? ready[0];
-  const model =
-    current && pick?.provider === current.provider && pick.model ? pick.model : (current?.default_model ?? "");
-  return { current, model };
-}
 
 /** What a blank conversation says before the first message, worded for its kind. */
 function EmptyState({ space, provider, model }: { space?: string; provider?: string; model: string }) {
@@ -122,6 +114,23 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
     (message) => toast(message, "error"),
   );
 
+  // Attachments go with plain chats only: workspace chats run on the server-side agent, which takes text.
+  const plain = !spaceId;
+  const attachments = useAttachments((message) => toast(message, "error"));
+  const sendRef = React.useRef<(text: string, extra?: Attachment[]) => void>(() => undefined);
+
+  // An annotated screenshot from the overlay arrives as navigation state on /chat.
+  const annotation = (location.state as { annotation?: AppAnnotation } | null)?.annotation;
+  React.useEffect(() => {
+    if (!annotation) return;
+    const item: Attachment = { id: newAttachmentId(), kind: "image", name: "Annotated screen", image: annotation.image };
+    // Consume the state so a re-render or Back doesn't attach it twice.
+    navigate(location.pathname, { replace: true, state: null });
+    if (annotation.note) sendRef.current(annotation.note, [item]);
+    else attachments.add([item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
+
   const turns = chat?.turns ?? [];
   const initials = (user?.first_name?.[0] ?? user?.email[0] ?? "?").toUpperCase();
   const busy = chatId ? chats.isBusy(chatId) : false;
@@ -140,16 +149,31 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
     return <Navigate to="/space/chat" replace />;
   }
 
-  function send() {
-    const typed = draft.trim();
-    if (!typed || busy || !current) return;
+  function send(text: string, extra: Attachment[] = []) {
+    const typed = text.trim();
+    const items = plain ? [...attachments.items, ...extra] : [];
+    if (!current) {
+      // Providers still loading: keep what arrived so nothing is lost.
+      if (extra.length) attachments.add(extra);
+      if (typed) setDraft(typed);
+      return;
+    }
+    if ((!typed && !items.length) || busy) return;
     if (inSpace && !spaceId) return;
     // `/name args` becomes a skill invocation when the user has a skill by that name.
     const { skill, content } = parseInvocation(typed, skills);
+    const { images, files } = splitAttachments(items);
     setDraft("");
+    attachments.clear();
     pinned.current = true;
-    const id = chats.send(chatId ?? null, content, { provider: current.provider, model, spaceId, skill });
+    const id = chats.send(chatId ?? null, content, { provider: current.provider, model, spaceId, skill, images, files });
     if (!chatId) navigate(`/chat/${id}`, { replace: true });
+  }
+  sendRef.current = send;
+
+  function attachFiles(files: File[]) {
+    if (plain) void attachments.addFiles(files);
+    else toast("Attachments work in plain chats. Start one from the Chat tab.", "error");
   }
 
   function onPick(provider: string, m: string) {
@@ -173,8 +197,9 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
           </Button>
         </HeaderActions>
       )}
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto px-8 py-8 md:px-14">
+      {/* @container: padding and bubble widths follow this column, not the window, since the folder panel takes a share. */}
+      <DropZone className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col" onFiles={attachFiles}>
+        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-8 @2xl:px-14">
           <div className="flex flex-col gap-7">
             {!providers.loading && !ready.length && (
               <Alert variant="problem">
@@ -220,7 +245,11 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
         <Composer
           value={draft}
           onChange={setDraft}
-          onSend={send}
+          onSend={() => send(draft)}
+          canSend={Boolean(draft.trim()) || (plain && attachments.items.length > 0)}
+          leading={plain ? <AttachButton onFiles={attachFiles} disabled={busy} /> : undefined}
+          attachments={plain ? <AttachmentTray items={attachments.items} onRemove={attachments.remove} /> : undefined}
+          onPaste={plain ? attachments.onPaste : undefined}
           onStop={busy && chatId ? () => chats.stop(chatId) : undefined}
           disabled={!ready.length || busy}
           placeholder={ready.length ? (skills.length ? "Ask something, or / for a skill" : "Ask something") : "Add an API key first"}
@@ -236,8 +265,8 @@ export function ChatPage({ inSpace = false }: { inSpace?: boolean }) {
             />
           }
         />
-      </div>
-      {space && explorerOpen && <FolderExplorer workspaceId={space.id} name={space.name} />}
+      </DropZone>
+      {space && explorerOpen && <FolderExplorer workspaceId={space.id} name={space.name} onCollapse={toggleExplorer} />}
     </div>
   );
 }

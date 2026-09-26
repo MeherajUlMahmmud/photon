@@ -21,6 +21,8 @@ type Envelope<T> = {
 
 export type Tokens = { access: string; refresh: string };
 
+const REFRESH_REUSE_MS = 60_000;
+
 export type RequestOptions = {
   tokens?: Tokens;
   body?: unknown;
@@ -101,8 +103,22 @@ export class ApiClient {
     }
   }
 
-  async refresh(refreshToken: string): Promise<Tokens> {
-    return this.send<Tokens>("POST", "/api/auth/token/refresh/", undefined, { refresh: refreshToken });
+  /**
+   * Refreshes are shared per refresh token. Rotation blacklists the old token,
+   * so a second refresh with it (a parallel request, or the companion window
+   * holding the same pair as the main window) would fail and sign the user
+   * out; instead every caller gets the one new pair, kept for a minute.
+   */
+  private readonly refreshes = new Map<string, Promise<Tokens>>();
+
+  refresh(refreshToken: string): Promise<Tokens> {
+    const existing = this.refreshes.get(refreshToken);
+    if (existing) return existing;
+    const pending = this.send<Tokens>("POST", "/api/auth/token/refresh/", undefined, { refresh: refreshToken });
+    this.refreshes.set(refreshToken, pending);
+    const forget = () => this.refreshes.delete(refreshToken);
+    pending.then(() => setTimeout(forget, REFRESH_REUSE_MS).unref(), forget);
+    return pending;
   }
 
   private async send<T>(method: Method, path: string, access?: string, body?: unknown): Promise<T> {

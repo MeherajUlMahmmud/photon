@@ -1,5 +1,17 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentEvent, CompletionEvent, LocalDictationProgress, PhotonApi } from "./api";
+import type {
+  AgentEvent,
+  CompletionEvent,
+  LocalDictationProgress,
+  PhotonApi,
+} from "./api";
+
+/** Subscribes to a main-process channel; returns the unsubscribe function. */
+function listen<T>(channel: string, listener: (value: T) => void): () => void {
+  const handler = (_e: Electron.IpcRendererEvent, value: T) => listener(value);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
 
 const photonApi: PhotonApi = {
   getInfo: () => ipcRenderer.invoke("app:getInfo"),
@@ -69,6 +81,24 @@ const photonApi: PhotonApi = {
   installSkill: (tokens, input) => ipcRenderer.invoke("ai:installSkill", tokens, input),
   updateSkill: (tokens, name, markdown) => ipcRenderer.invoke("ai:updateSkill", tokens, name, markdown),
   deleteSkill: (tokens, name) => ipcRenderer.invoke("ai:deleteSkill", tokens, name),
+  companionInfo: () => ipcRenderer.invoke("companion:info"),
+  setCompanionSettings: (patch) => ipcRenderer.invoke("companion:setSettings", patch),
+  suspendCompanionShortcut: (suspended) => ipcRenderer.invoke("companion:suspendShortcut", suspended),
+  captureScreen: () => ipcRenderer.invoke("companion:capture"),
+  hideCompanion: () => ipcRenderer.invoke("companion:hide"),
+  showCompanion: () => ipcRenderer.invoke("companion:show"),
+  openMainWindow: () => ipcRenderer.invoke("companion:openMain"),
+  openScreenPermissionSettings: () => ipcRenderer.invoke("companion:openPermissionSettings"),
+  onCompanionPending: (listener) => listen<void>("companion:pending", () => listener()),
+  takeCompanionPending: () => ipcRenderer.invoke("companion:takePending"),
+  startAnnotation: () => ipcRenderer.invoke("annotate:start"),
+  requestAccessibility: () => ipcRenderer.invoke("annotate:requestAccessibility"),
+  onAnnotateStart: (listener) => listen<void>("annotate:begin", () => listener()),
+  takeAnnotationShot: () => ipcRenderer.invoke("annotate:takeShot"),
+  submitAnnotation: (input) => ipcRenderer.invoke("annotate:submit", input),
+  cancelAnnotation: () => ipcRenderer.invoke("annotate:cancel"),
+  onAppAnnotation: (listener) => listen<void>("app:annotation", () => listener()),
+  takeAppAnnotation: () => ipcRenderer.invoke("app:takeAnnotation"),
 };
 
 contextBridge.exposeInMainWorld("photon", photonApi);

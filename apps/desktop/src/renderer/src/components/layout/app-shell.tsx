@@ -1,4 +1,5 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import * as React from "react";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "@/hooks/use-auth";
 import { ChatsProvider, useChats } from "@/hooks/use-chats";
@@ -20,15 +21,17 @@ export function AppShell() {
         <SkillsProvider>
           <HeaderActionsProvider>
             <SidebarProvider>
+              <AnnotationInbox />
               <AppSidebar />
-              <SidebarInset className="h-svh max-h-svh">
+              {/* min-w-0: a flex item otherwise grows to fit its widest child and pushes past the window. */}
+              <SidebarInset className="h-svh max-h-svh min-w-0">
                 <header className="flex h-11 shrink-0 items-center gap-2 px-3">
                   <SidebarTrigger />
                   <Separator orientation="vertical" className="mx-1 h-4" />
                   <Breadcrumb pathname={location.pathname} />
                   <HeaderActionsSlot className="ml-auto flex items-center gap-1" />
                 </header>
-                <div className="min-h-0 flex-1 overflow-auto">
+                <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
                   {/* Keyed on pathname so a crashed page resets when the user navigates away. */}
                   <AppErrorBoundary key={location.pathname}>
                     <Outlet />
@@ -45,6 +48,21 @@ export function AppShell() {
   return <Navigate to="/login" replace state={{ from: location }} />;
 }
 
+/** Annotated screenshots sent to "New chat" from the overlay open a fresh plain chat with the picture attached. */
+function AnnotationInbox() {
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    async function take() {
+      const annotation = await window.photon.takeAppAnnotation();
+      if (annotation) navigate("/chat", { state: { annotation } });
+    }
+    // A freshly opened window mounts after the hand-off was queued, so check on mount too.
+    void take();
+    return window.photon.onAppAnnotation(() => void take());
+  }, [navigate]);
+  return null;
+}
+
 const TITLES: Record<string, string> = {
   "": "Workspace",
   chat: "Chat",
@@ -54,6 +72,7 @@ const TITLES: Record<string, string> = {
   skills: "Skills",
   account: "Account",
   security: "Password",
+  companion: "Companion",
   help: "Help",
 };
 
