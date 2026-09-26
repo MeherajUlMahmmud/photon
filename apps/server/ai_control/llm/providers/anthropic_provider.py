@@ -48,7 +48,18 @@ class AnthropicLLMProvider(AbstractLLMProvider):
                 if text:
                     system_parts.append(text)
             elif role == "user":
-                wire.append({"role": "user", "content": str(m.get("content", ""))})
+                text = str(m.get("content", ""))
+                images = m.get("images") or []
+                if images:
+                    blocks = [
+                        {"type": "image", "source": {"type": "base64", "media_type": i["media_type"], "data": i["data"]}}
+                        for i in images
+                    ]
+                    if text.strip():
+                        blocks.append({"type": "text", "text": text})
+                    wire.append({"role": "user", "content": blocks})
+                else:
+                    wire.append({"role": "user", "content": text})
             elif role == "assistant":
                 blocks: List[Dict[str, Any]] = []
                 text = str(m.get("content") or "")

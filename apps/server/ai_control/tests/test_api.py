@@ -95,6 +95,42 @@ class CompletionTests(AiApiTestsBase):
         self.assertEqual(res.status_code, 400)
         self.assertIn('provider', res.json()['errors'])
 
+    def test_images_are_validated(self):
+        def post(message):
+            return self.client.post(self.URL, {'messages': [message]}, format='json')
+
+        res = post({'role': 'user', 'content': 'x', 'images': [{'media_type': 'image/gif', 'data': 'QUJD'}]})
+        self.assertEqual(res.status_code, 400)
+        res = post({'role': 'user', 'content': 'x', 'images': [{'media_type': 'image/png', 'data': 'not base64!'}]})
+        self.assertEqual(res.status_code, 400)
+        res = post({'role': 'user', 'content': 'x', 'images': [{'media_type': 'image/png', 'data': 'QUJD'}] * 5})
+        self.assertEqual(res.status_code, 400)
+        res = self.client.post(self.URL, {'messages': [
+            {'role': 'user', 'content': 'x'},
+            {'role': 'assistant', 'content': 'y', 'images': [{'media_type': 'image/png', 'data': 'QUJD'}]},
+        ]}, format='json')
+        self.assertEqual(res.status_code, 400)
+
+    @mock.patch('ai_control.llm.providers.openai_compatible_provider.OpenAICompatibleLLMProvider.complete')
+    def test_images_reach_the_provider_but_not_the_log(self, complete):
+        complete.return_value = CompletionResult(content='A chart.', usage={'input_tokens': 3, 'output_tokens': 1})
+        SecretService.set_api_key(self.alice, 'nvidia', 'nvapi-x')
+        image = {'media_type': 'image/jpeg', 'data': 'U0NSRUVOU0hPVA=='}
+
+        res = self.client.post(
+            self.URL,
+            {'messages': [{'role': 'user', 'content': 'What is this?', 'images': [image]}], 'provider': 'nvidia'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        sent = complete.call_args.args[0]
+        self.assertEqual(sent[0]['images'], [image])
+
+        call = LlmApiCallModel.objects.get(id=res.json()['data']['call_id'])
+        self.assertIn('[image image/jpeg]', call.prompt_text)
+        self.assertNotIn(image['data'], call.prompt_text)
+        self.assertNotIn(image['data'], str(call.prompt_metadata))
+
     def test_no_key_is_503(self):
         res = self.client.post(self.URL, {'messages': [{'role': 'user', 'content': 'hi'}]}, format='json')
         self.assertEqual(res.status_code, 503)

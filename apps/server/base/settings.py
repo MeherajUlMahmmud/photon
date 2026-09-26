@@ -107,6 +107,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Companion questions carry a base64 screenshot in the JSON body, which is past
+# Django's 2.5 MB default. The completion serializer caps each image itself.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+
 from base.settings_parts.rest_api import (  # noqa: E402
     CORS_ALLOW_ALL_ORIGINS,
     CORS_ALLOWED_ORIGINS,

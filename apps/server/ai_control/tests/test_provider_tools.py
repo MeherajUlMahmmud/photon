@@ -27,6 +27,12 @@ NEUTRAL = [
 
 TOOLS = [{'name': 'ls', 'description': 'List', 'input_schema': {'type': 'object', 'properties': {}}}]
 
+WITH_IMAGE = [
+    {'role': 'user', 'content': 'What is on my screen?', 'images': [{'media_type': 'image/jpeg', 'data': 'QUJD'}]},
+    {'role': 'assistant', 'content': 'A terminal.'},
+    {'role': 'user', 'content': 'Thanks'},
+]
+
 
 class AnthropicWireTests(SimpleTestCase):
     def test_to_wire_groups_results_and_drops_empty_text(self):
@@ -44,6 +50,15 @@ class AnthropicWireTests(SimpleTestCase):
         self.assertEqual([r['tool_use_id'] for r in results], ['c2', 'c3'])
         self.assertTrue(results[1]['is_error'])
         self.assertFalse(results[0]['is_error'])
+
+    def test_to_wire_puts_images_before_text(self):
+        msgs = AnthropicLLMProvider._to_wire(WITH_IMAGE)['messages']
+        self.assertEqual(msgs[0]['content'], [
+            {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': 'QUJD'}},
+            {'type': 'text', 'text': 'What is on my screen?'},
+        ])
+        # A message without images stays a plain string.
+        self.assertEqual(msgs[2]['content'], 'Thanks')
 
     def test_tools_to_wire(self):
         self.assertEqual(
@@ -120,6 +135,14 @@ class OpenAIWireTests(SimpleTestCase):
         self.assertEqual(wire[3], {'role': 'tool', 'tool_call_id': 'c1', 'content': 'a.py\nb.py'})
         self.assertEqual(wire[4]['content'], 'Two files.')
         self.assertEqual(wire[6]['content'], 'Error: denied')
+
+    def test_to_wire_sends_images_as_data_urls(self):
+        wire = OpenAICompatibleLLMProvider._to_wire(WITH_IMAGE)
+        self.assertEqual(wire[0]['content'], [
+            {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,QUJD'}},
+            {'type': 'text', 'text': 'What is on my screen?'},
+        ])
+        self.assertEqual(wire[2], {'role': 'user', 'content': 'Thanks'})
 
     def test_tools_to_wire(self):
         self.assertEqual(

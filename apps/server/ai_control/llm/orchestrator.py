@@ -160,6 +160,9 @@ class LLMOrchestrator:
                 continue
             role = msg.get("role")
             if role in {"system", "user"}:
+                # Images are sent to the provider but never stored: the log keeps a marker only.
+                for image in msg.get("images") or []:
+                    lines.append(f"[image {image.get('media_type', '')}]")
                 lines.append(str(msg.get("content", "")))
             elif role == "assistant":
                 if msg.get("content"):

@@ -49,7 +49,16 @@ class OpenAICompatibleLLMProvider(AbstractLLMProvider):
         wire: List[Dict[str, Any]] = []
         for m in messages:
             role = m.get("role")
-            if role in ("system", "user"):
+            if role == "user" and m.get("images"):
+                parts: List[Dict[str, Any]] = [
+                    {"type": "image_url", "image_url": {"url": f"data:{i['media_type']};base64,{i['data']}"}}
+                    for i in m["images"]
+                ]
+                text = str(m.get("content", ""))
+                if text.strip():
+                    parts.append({"type": "text", "text": text})
+                wire.append({"role": "user", "content": parts})
+            elif role in ("system", "user"):
                 wire.append({"role": role, "content": str(m.get("content", ""))})
             elif role == "assistant":
                 text = str(m.get("content") or "")

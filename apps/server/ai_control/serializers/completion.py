@@ -4,17 +4,34 @@ from ai_control.choices import LlmProviderChoices
 from ai_control.services.skill_service import SKILL_NAME_PATTERN, SkillService
 
 MESSAGE_ROLES = ('system', 'user', 'assistant')
+IMAGE_MEDIA_TYPES = ('image/png', 'image/jpeg', 'image/webp')
+MAX_IMAGES_PER_MESSAGE = 4
+#: Base64 characters per image, about 7.5 MB decoded. The desktop sends
+#: screenshots downscaled to ~1568 px JPEG, well under this.
+MAX_IMAGE_BASE64_CHARS = 10 * 1024 * 1024
+
+
+class CompletionImageSerializer(serializers.Serializer):
+    """One inline image (a screenshot) sent with a user message. Never stored."""
+    media_type = serializers.ChoiceField(choices=IMAGE_MEDIA_TYPES)
+    data = serializers.RegexField(r'^[A-Za-z0-9+/]+={0,2}$', max_length=MAX_IMAGE_BASE64_CHARS)
+
+    class Meta:
+        ref_name = 'CompletionImage'
 
 
 class CompletionMessageSerializer(serializers.Serializer):
     """
     One transcript line. A user message may name a ``skill``: the server then
     sends the skill's instructions with ``content`` as its arguments, so the
-    client never has to hold or resend skill text itself.
+    client never has to hold or resend skill text itself. A user message may
+    also carry ``images``; they go to the provider for this call only and are
+    left out of the logged prompt.
     """
     role = serializers.ChoiceField(choices=MESSAGE_ROLES)
     content = serializers.CharField(allow_blank=True, trim_whitespace=False, max_length=200000)
     skill = serializers.RegexField(SKILL_NAME_PATTERN, required=False, allow_blank=True, max_length=64)
+    images = CompletionImageSerializer(many=True, required=False, max_length=MAX_IMAGES_PER_MESSAGE)
 
     class Meta:
         ref_name = 'CompletionMessage'
@@ -22,6 +39,8 @@ class CompletionMessageSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs.get('skill') and attrs['role'] != 'user':
             raise serializers.ValidationError({'skill': 'Only user messages can invoke a skill.'})
+        if attrs.get('images') and attrs['role'] != 'user':
+            raise serializers.ValidationError({'images': 'Only user messages can carry images.'})
         return attrs
 
 
@@ -60,7 +79,10 @@ class CompletionRequestSerializer(serializers.Serializer):
         for m in self.validated_data['messages']:
             skill = m.get('skill') or ''
             content = SkillService.expand(user, skill, m['content']) if skill else m['content']
-            out.append({'role': m['role'], 'content': content})
+            message = {'role': m['role'], 'content': content}
+            if m.get('images'):
+                message['images'] = [dict(image) for image in m['images']]
+            out.append(message)
         return out
 
 

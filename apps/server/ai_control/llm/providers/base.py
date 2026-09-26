@@ -75,7 +75,8 @@ class AbstractLLMProvider(ABC):
     Messages arrive in a provider-neutral shape and each client converts them
     to its wire format:
 
-    - ``{"role": "system" | "user", "content": str}``
+    - ``{"role": "system" | "user", "content": str}``; a ``user`` message may
+      add ``"images": [{"media_type", "data"}]`` (base64), sent before the text
     - ``{"role": "assistant", "content": str, "tool_calls": [{"id", "name", "input"}]}``
     - ``{"role": "tool_results", "results": [{"call_id", "name", "content", "is_error"}]}``
       (all results for the preceding assistant turn, grouped)
