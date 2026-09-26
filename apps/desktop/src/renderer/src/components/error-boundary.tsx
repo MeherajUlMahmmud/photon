@@ -28,7 +28,7 @@ export function ErrorFallback({ title, message, detail, onRetry, retryLabel = "T
               {showDetail ? "Hide details" : "Show details"}
             </button>
             {showDetail && (
-              <pre className="mt-3 max-h-56 overflow-auto rounded-lg bg-black p-4 font-mono text-small leading-[1.6] whitespace-pre-wrap text-sheet">
+              <pre className="mt-3 max-h-56 overflow-x-hidden overflow-y-auto rounded-lg bg-black p-4 font-mono text-small leading-[1.6] whitespace-pre-wrap text-sheet">
                 {detail}
               </pre>
             )}

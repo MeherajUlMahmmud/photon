@@ -22,7 +22,7 @@ export function Page({
   width?: "default" | "wide";
 }) {
   return (
-    <section className={cn("px-8 pt-14 pb-20 md:px-14", width === "default" ? "max-w-[68ch]" : "max-w-6xl", className)}>
+    <section className={cn("animate-rise px-8 pt-14 pb-20 md:px-14", width === "default" ? "max-w-[68ch]" : "max-w-6xl", className)}>
       <header className="mb-10 flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="max-w-[40ch]">
           <h1 className="text-display text-balance">{title}</h1>

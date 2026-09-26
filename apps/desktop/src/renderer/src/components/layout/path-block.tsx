@@ -23,8 +23,8 @@ export function PathBlock({
   return (
     <div className={cn("rounded-lg bg-black px-7 py-6 text-sheet", className)}>
       {path ? (
-        <p className={cn("type-in font-mono text-[1.75rem] leading-[1.15] break-all md:text-[2rem]", live && "caret")}>
-          {shortenHome(path)}
+        <p className={cn("type-in font-mono text-[1.75rem] leading-[1.15] wrap-break-word md:text-[2rem]", live && "caret")}>
+          <PathSegments path={shortenHome(path)} />
         </p>
       ) : (
         <p className="font-mono text-[1.75rem] leading-[1.15] text-sheet/50 md:text-[2rem]">no folder yet</p>
@@ -32,6 +32,25 @@ export function PathBlock({
       {note && <p className="mt-3 text-body text-sheet/70">{note}</p>}
       {children && <div className="mt-5 flex flex-wrap gap-2">{children}</div>}
     </div>
+  );
+}
+
+/** A path that line-breaks after its slashes, so "misc" never splits into "mis / c". */
+function PathSegments({ path }: { path: string }) {
+  const parts = path.split("/");
+  return (
+    <>
+      {parts.map((part, i) => (
+        <React.Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <>
+              /<wbr />
+            </>
+          )}
+        </React.Fragment>
+      ))}
+    </>
   );
 }
 

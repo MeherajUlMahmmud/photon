@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div data-slot="table-container" className="relative w-full min-w-0">
       <table data-slot="table" className={cn("w-full caption-bottom text-body", className)} {...props} />
     </div>
   );
@@ -26,14 +26,14 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
-      className={cn("h-9 px-3 text-left align-middle text-small font-medium whitespace-nowrap text-slate first:pl-0 last:pr-0", className)}
+      className={cn("h-9 px-3 text-left align-middle text-small font-medium text-slate wrap-anywhere first:pl-0 last:pr-0", className)}
       {...props}
     />
   );
 }
 
 function TableCell({ className, ...props }: React.ComponentProps<"td">) {
-  return <td data-slot="table-cell" className={cn("px-3 py-2.5 align-middle whitespace-nowrap first:pl-0 last:pr-0", className)} {...props} />;
+  return <td data-slot="table-cell" className={cn("px-3 py-2.5 align-middle wrap-anywhere first:pl-0 last:pr-0", className)} {...props} />;
 }
 
 function TableCaption({ className, ...props }: React.ComponentProps<"caption">) {

@@ -4,21 +4,47 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  Photon palette. Five values, one of them chroma:
-  chalk page, white sheet, true black type, slate secondary, verdigris for
-  "granted" (active folder, approved command). Nothing else gets color.
+  UI fonts, fetched from Fontshare by scripts/fetch-fonts.js (gitignored:
+  licensed for embedding, not for a public repo). Variable builds, so one
+  file covers every weight. Missing files fall back to the stacks below.
+*/
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("./assets/fonts/CabinetGrotesk-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Satoshi";
+  src: url("./assets/fonts/Satoshi-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+  Photon palette: a warm neutral base and one functional accent.
+  chalk page, sheet surface (cards, inputs, menus), ink type (never pure
+  black), slate secondary, verdigris for "granted" (active folder, approved
+  command, focus). Nothing else gets color.
 */
 :root {
-  --radius: 0.375rem;
+  --radius: 0.5rem;
 
-  --chalk: #f2f3f1;
-  --sheet: #ffffff;
-  --black: #000000;
-  --slate: #6b7370;
+  --chalk: #f3f1ed;
+  --sheet: #fcfbf9;
+  --black: #141517;
+  --slate: #62666f;
   --verdigris: #3f7f73;
-  --verdigris-wash: #e3eeeb;
+  --verdigris-wash: #e2ece8;
   --verdigris-deep: #2c5b52;
-  --rule: #dfe2df;
+  --rule: #e4e1d9;
+
+  /* Layered ambient shadow for anything that floats (menus, dialogs, the companion chip). */
+  --shadow-ambient: 0 1px 2px rgb(20 21 23 / 0.04), 0 8px 16px -4px rgb(20 21 23 / 0.06);
+  --shadow-float: 0 1px 2px rgb(20 21 23 / 0.05), 0 12px 32px -8px rgb(20 21 23 / 0.12);
 
   --background: var(--chalk);
   --foreground: var(--black);
@@ -30,13 +56,13 @@
   --primary-foreground: var(--sheet);
   --secondary: var(--sheet);
   --secondary-foreground: var(--black);
-  --muted: #e9ebe8;
+  --muted: #ebe8e2;
   --muted-foreground: var(--slate);
-  --accent: #e9ebe8;
+  --accent: #ebe8e2;
   --accent-foreground: var(--black);
   --destructive: var(--black);
   --border: var(--rule);
-  --input: #cfd3cf;
+  --input: #d8d4ca;
   --ring: var(--verdigris);
 
   --sidebar: var(--chalk);
@@ -48,7 +74,8 @@
   --sidebar-border: var(--rule);
   --sidebar-ring: var(--verdigris);
 
-  --font-sans: Charter, "Iowan Old Style", "Bitstream Charter", Georgia, serif;
+  --font-sans: "Satoshi", "Avenir Next", "Helvetica Neue", sans-serif;
+  --font-display: "Cabinet Grotesk", "Satoshi", "Avenir Next", sans-serif;
   --font-mono: "SF Mono", Menlo, "JetBrains Mono", monospace;
 
   font-family: var(--font-sans);
@@ -83,6 +110,8 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  /* Tailwind's own black is #000; every bg-black / text-black means our ink. */
+  --color-black: var(--black);
   --color-chalk: var(--chalk);
   --color-sheet: var(--sheet);
   --color-slate: var(--slate);
@@ -91,14 +120,18 @@
   --color-verdigris-deep: var(--verdigris-deep);
 
   --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
   --font-mono: var(--font-mono);
+
+  --shadow-ambient: var(--shadow-ambient);
+  --shadow-float: var(--shadow-float);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 6px);
 
-  /* Type scale (Bringhurst-ish): 11 / 13 / 15 / 18 / 24 / 36 */
+  /* Type scale: 11 / 13 / 15 / 18 / 24 / 48. Headings are Cabinet Grotesk, heavy and tight. */
   --text-micro: 0.6875rem;
   --text-micro--line-height: 1.5;
   --text-small: 0.8125rem;
@@ -108,13 +141,52 @@
   --text-lead: 1.125rem;
   --text-lead--line-height: 1.5;
   --text-section: 1.5rem;
-  --text-section--line-height: 1.2;
-  --text-section--letter-spacing: -0.01em;
-  --text-display: 2.25rem;
-  --text-display--line-height: 1.08;
-  --text-display--letter-spacing: -0.015em;
+  --text-section--line-height: 1.15;
+  --text-section--letter-spacing: -0.02em;
+  --text-display: 3rem;
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.02em;
 
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Entrances: a short rise for new content, a fade for revealed panels. */
+  --animate-rise: rise 240ms var(--ease-out-expo) both;
+  --animate-reveal: reveal 180ms var(--ease-out-expo) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/*
+  Press feedback for everything clickable. Zero specificity (:where), so a
+  component can still opt out or set its own transform.
+*/
+@utility press {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 150ms, 150ms, 150ms, 150ms, 150ms, 100ms;
+  transition-timing-function: ease;
+  &:active:not(:disabled, [aria-disabled="true"], [data-disabled]) {
+    transform: scale(0.98);
+  }
 }
 
 @layer base {
@@ -126,17 +198,47 @@
   body,
   #root {
     height: 100%;
+    /* Never scroll sideways. Content wraps; this only catches mistakes. */
+    overflow-x: clip;
   }
 
   body {
     @apply bg-background text-foreground text-body antialiased;
-    font-feature-settings: "kern", "liga", "onum";
+    font-feature-settings: "kern", "liga";
   }
 
   h1,
   h2,
   h3 {
-    font-weight: 500;
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .text-display {
+    font-weight: 800;
+  }
+
+  /* Anything clickable presses in slightly. */
+  :where(button, a[href], summary, [role="button"], [role="menuitem"], [role="tab"], [role="option"]) {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: 150ms, 150ms, 150ms, 150ms, 150ms, 100ms;
+    transition-timing-function: ease;
+  }
+
+  :where(button, a[href], summary, [role="button"], [role="tab"]):active:not(:disabled, [aria-disabled="true"], [data-disabled]) {
+    transform: scale(0.98);
+  }
+
+  /* Long words, URLs and paths wrap instead of pushing the layout wider. */
+  p,
+  li,
+  td,
+  th,
+  dd,
+  dt,
+  blockquote {
+    overflow-wrap: anywhere;
   }
 
   code,
@@ -491,6 +593,16 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+    }
+    :where(button, a[href], summary, [role="button"], [role="tab"]):active {
+      transform: none !important;
+    }
     .caret::after {
       animation: none;
     }

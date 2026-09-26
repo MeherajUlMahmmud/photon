@@ -124,7 +124,7 @@ function LiveModels({
             spellCheck={false}
             inputClassName="h-8 font-mono text-xs"
           />
-          <ul className="mt-3 flex max-h-64 flex-wrap gap-1 overflow-auto">
+          <ul className="mt-3 flex max-h-64 flex-wrap gap-1 overflow-x-hidden overflow-y-auto">
             {shown.map((m) => (
               <li key={m}>
                 <ModelChip id={m} isDefault={m === provider.default_model} onCopy={onCopy} />

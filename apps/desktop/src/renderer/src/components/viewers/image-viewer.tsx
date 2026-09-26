@@ -17,7 +17,7 @@ export function ImageViewer({ src, name, size, compact }: ViewerProps & { src: s
     <div className="flex h-full min-h-0 flex-col">
       <div
         className={cn(
-          "flex min-h-0 flex-1 items-center justify-center overflow-auto",
+          "flex min-h-0 flex-1 items-center justify-center overflow-x-hidden overflow-y-auto",
           compact ? "p-2" : "p-6",
           // Checkerboard so transparent regions read as transparent.
           "bg-[linear-gradient(45deg,var(--sheet)_25%,transparent_25%,transparent_75%,var(--sheet)_75%),linear-gradient(45deg,var(--sheet)_25%,transparent_25%,transparent_75%,var(--sheet)_75%)] bg-size-[16px_16px] bg-position-[0_0,8px_8px]",

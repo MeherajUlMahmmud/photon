@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowSquareOut, CaretRight, Copy, File, Folder, FolderOpen } from "@phosphor-icons/react";
+import { ArrowSquareOut, CaretRight, Copy, File, Folder, FolderOpen, SidebarSimple } from "@phosphor-icons/react";
 import type { DirEntry, Tokens, WithTokens } from "../../../../preload/api";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -15,9 +15,12 @@ import {
 } from "@/components/ui/context-menu";
 import { FileViewer } from "@/components/viewers";
 import { ResizeHandle } from "@/components/ui/resize-handle";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const EXPLORER_WIDTH = { fallback: 288, min: 200, max: 640 };
+/** The chat beside the panel never gets narrower than this; the panel gives way instead of running off-screen. */
+const CHAT_MIN_WIDTH = 480;
 
 type ExplorerContextValue = {
   onOpenFile: (relPath: string) => void;
@@ -101,13 +104,13 @@ function Entry({ entry, workspaceId, relPath, depth }: { entry: DirEntry } & Nod
       type="button"
       onClick={() => (isDir ? setOpen((o) => !o) : onOpenFile(relPath))}
       onDoubleClick={() => !isDir && run((t) => window.photon.openWorkspaceFileExternal(t, workspaceId, relPath))}
-      className={`flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-small hover:bg-sidebar-accent ${
+      className={`flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md pr-2 text-left text-small hover:bg-sidebar-accent ${
         isActive ? "bg-sidebar-accent text-foreground" : ""
       }`}
       style={{ paddingLeft: `${depth * 12 + 8}px` }}
       aria-expanded={isDir ? open : undefined}
       aria-current={isActive ? "true" : undefined}
-      title={isDir ? undefined : "Click to view. Double-click to open in the default app."}
+      title={isDir ? entry.name : `${entry.name}\nClick to view. Double-click to open in the default app.`}
     >
       <CaretRight
         weight="bold"
@@ -122,7 +125,7 @@ function Entry({ entry, workspaceId, relPath, depth }: { entry: DirEntry } & Nod
       ) : (
         <File weight="bold" className="size-4 shrink-0 text-slate" />
       )}
-      <span className="truncate">{entry.name}</span>
+      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
     </button>
   );
 
@@ -167,7 +170,15 @@ function Entry({ entry, workspaceId, relPath, depth }: { entry: DirEntry } & Nod
 }
 
 /** Read-only tree of the workspace folder, shown beside a chat that runs in it. */
-export function FolderExplorer({ workspaceId, name }: { workspaceId: string; name: string }) {
+export function FolderExplorer({
+  workspaceId,
+  name,
+  onCollapse,
+}: {
+  workspaceId: string;
+  name: string;
+  onCollapse?: () => void;
+}) {
   const { width, setWidth, reset, min, max } = usePanelWidth("photon.explorer.width", EXPLORER_WIDTH);
   // Clicked file, previewed in the lower half of the panel.
   const [preview, setPreview] = React.useState<string | null>(null);
@@ -177,7 +188,7 @@ export function FolderExplorer({ workspaceId, name }: { workspaceId: string; nam
     <ExplorerContext.Provider value={ctx}>
       <aside
         className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-border bg-sidebar"
-        style={{ width }}
+        style={{ width, maxWidth: `calc(100% - ${CHAT_MIN_WIDTH}px)` }}
       >
         <ResizeHandle
           edge="left"
@@ -188,10 +199,24 @@ export function FolderExplorer({ workspaceId, name }: { workspaceId: string; nam
           onReset={reset}
           label="Resize folder panel"
         />
-        <div className="flex h-9 items-center px-3 text-small font-medium text-foreground">
-          <span className="truncate">{name}</span>
+        <div className="flex h-9 min-w-0 items-center gap-2 pr-1.5 pl-3 text-small font-medium text-foreground">
+          <span className="min-w-0 flex-1 truncate" title={name}>
+            {name}
+          </span>
+          {onCollapse && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="shrink-0"
+              onClick={onCollapse}
+              aria-label="Hide folder panel"
+              title="Hide folder panel"
+            >
+              <SidebarSimple className="rotate-180" />
+            </Button>
+          )}
         </div>
-        <div className="min-h-0 flex-1 overflow-auto pb-3">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3">
           <DirChildren workspaceId={workspaceId} relPath="" depth={0} />
         </div>
         {preview && (

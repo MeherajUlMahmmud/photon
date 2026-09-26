@@ -29,7 +29,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             key={t.id}
             role="status"
             className={
-              "max-w-sm rounded-md px-3.5 py-2.5 text-body animate-in fade-in slide-in-from-bottom-2 duration-300 " +
+              "max-w-sm rounded-md px-3.5 py-2.5 text-body shadow-float animate-in fade-in slide-in-from-bottom-2 duration-200 " +
               (t.tone === "error" ? "border-l-2 border-black bg-sheet text-foreground" : "bg-black text-sheet")
             }
           >

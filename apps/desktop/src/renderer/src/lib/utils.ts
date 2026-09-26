@@ -1,5 +1,16 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/**
+ * tailwind-merge only knows Tailwind's own scale. Without this, the custom
+ * sizes in styles.css (`text-small`, `text-body`, …) read as text colours, and
+ * `cn("text-sheet", "text-small")` would drop the colour.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    theme: { text: ["micro", "small", "body", "lead", "section", "display"] },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

@@ -36,7 +36,7 @@ export function SkillMenu({
     <div
       role="listbox"
       aria-label="Skills"
-      className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-float animate-reveal"
     >
       {skills.length ? (
         <ul ref={listRef} className="max-h-64 overflow-y-auto p-1">

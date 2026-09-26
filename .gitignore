@@ -60,3 +60,7 @@ Thumbs.db
 .cache/
 .eslintcache
 .playwright-mcp/
+
+# Fontshare fonts: licensed for embedding, not for redistribution in a public repo.
+# scripts/fetch-fonts.js downloads them on install and build.
+apps/desktop/src/renderer/src/assets/fonts/*.woff2

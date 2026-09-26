@@ -37,7 +37,8 @@ function CodeBlock({ className, children }: React.ComponentProps<"code">) {
           {done ? <Check weight="bold" className="size-3.5" /> : <Copy weight="bold" className="size-3.5" />}
         </button>
       </div>
-      <pre className="overflow-x-auto px-3 pb-3 font-mono text-small leading-[1.6]">
+      {/* Long lines wrap: nothing in Photon scrolls sideways. */}
+      <pre className="px-3 pb-3 font-mono text-small leading-[1.6] whitespace-pre-wrap wrap-anywhere">
         <code className={className}>{text}</code>
       </pre>
     </div>
@@ -49,7 +50,7 @@ const components: Components = {
   p: ({ children }) => <p className="my-2 leading-[1.6] first:mt-0 last:mb-0">{children}</p>,
   h1: ({ children }) => <h1 className="mt-5 mb-2 text-section first:mt-0">{children}</h1>,
   h2: ({ children }) => <h2 className="mt-5 mb-2 text-lead first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="mt-4 mb-1.5 text-body font-medium first:mt-0">{children}</h3>,
+  h3: ({ children }) => <h3 className="mt-4 mb-1.5 text-body first:mt-0">{children}</h3>,
   h4: ({ children }) => <h4 className="mt-3 mb-1 text-body font-medium first:mt-0">{children}</h4>,
   ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5 marker:text-slate">{children}</ul>,
   ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5 marker:text-slate">{children}</ol>,
@@ -64,7 +65,7 @@ const components: Components = {
       {children}
     </a>
   ),
-  strong: ({ children }) => <strong className="font-medium">{children}</strong>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   blockquote: ({ children }) => (
     <blockquote className="my-3 border-l-2 border-input pl-3 text-slate [&>p]:my-1">{children}</blockquote>
   ),
@@ -81,12 +82,12 @@ const components: Components = {
     );
   },
   table: ({ children }) => (
-    <div className="my-3 overflow-x-auto">
-      <table className="w-full border-collapse text-small">{children}</table>
+    <div className="my-3 min-w-0">
+      <table className="w-full table-fixed border-collapse text-small">{children}</table>
     </div>
   ),
-  th: ({ children }) => <th className="border-b border-border px-2 py-1.5 text-left font-medium">{children}</th>,
-  td: ({ children }) => <td className="border-b border-border px-2 py-1.5 align-top">{children}</td>,
+  th: ({ children }) => <th className="border-b border-border px-2 py-1.5 text-left font-medium wrap-anywhere">{children}</th>,
+  td: ({ children }) => <td className="border-b border-border px-2 py-1.5 align-top wrap-anywhere">{children}</td>,
   input: ({ checked }) => (
     <input type="checkbox" checked={Boolean(checked)} readOnly className="mr-1.5 accent-verdigris" />
   ),
