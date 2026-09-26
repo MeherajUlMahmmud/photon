@@ -38,7 +38,11 @@ class LlmToolRiskChoices(models.TextChoices):
 
 
 class LlmToolExecutorChoices(models.TextChoices):
-    """Where a tool runs. Only the client executes today; server is reserved."""
+    """
+    Where a tool runs. Client tools go to the desktop as pending calls; server
+    tools (``read_skill_file``) are answered inside the step by
+    ``ServerToolService`` and reported in ``done.resolved_tool_calls``.
+    """
     CLIENT = "client", "Client (desktop)"
     SERVER = "server", "Server"
 

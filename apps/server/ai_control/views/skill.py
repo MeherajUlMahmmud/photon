@@ -20,28 +20,42 @@ class GetSkillListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        rows = SkillModel.objects.filter(user=request.user).order_by('name')
+        rows = SkillModel.objects.filter(user=request.user).prefetch_related('files').order_by('name')
         return ApiResponse.success(
             message='Skill list fetched successfully', data=SkillModelSerializer.List(rows, many=True).data,
         )
 
 
 class InstallSkillAPIView(APIView):
-    """Create a skill from a pasted Markdown file."""
+    """
+    Create a skill from a pasted Markdown file or an uploaded zip. For a zip,
+    ``data.skipped_files`` lists entries left out (binaries, oversized files).
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = SkillInstallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        name = data.get('name') or None
+        skipped = []
         try:
-            skill = SkillService.install(
-                request.user, data['markdown'], name=data.get('name') or None, replace=data['replace'],
-            )
+            if data.get('archive'):
+                skill, skipped = SkillService.install_archive(
+                    request.user, data['archive'], name=name, replace=data['replace'],
+                )
+            else:
+                skill = SkillService.install(request.user, data['markdown'], name=name, replace=data['replace'])
         except SkillError as e:
             return _skill_error(e)
-        logger.info('[InstallSkillAPIView] Skill installed - user_id=%s, name=%s', request.user.id, skill.name)
-        return ApiResponse.created(message='Skill installed', data=SkillModelSerializer.Details(skill).data)
+        logger.info(
+            '[InstallSkillAPIView] Skill installed - user_id=%s, name=%s, files=%s, skipped=%s',
+            request.user.id, skill.name, skill.files.count(), len(skipped),
+        )
+        return ApiResponse.created(
+            message='Skill installed',
+            data={**SkillModelSerializer.Details(skill).data, 'skipped_files': skipped},
+        )
 
 
 class GetSkillDetailsAPIView(APIView):

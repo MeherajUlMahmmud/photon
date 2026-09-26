@@ -70,11 +70,11 @@ Every response is the envelope `{status, status_code, message, data?, errors?, m
 | GET | `/api/workspace/active/` | | most recently opened |
 | POST | `/api/workspace/open/` | `{root_path}` | upsert by path, marks it active |
 | GET | `/api/ai/provider/list/` | | active providers in priority order, each with `has_key` for this user and `model_ids` |
-| POST | `/api/ai/completion/create/` | `{messages:[{role,content,skill?}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer; a user message with `skill` is expanded server-side (`404` for an unknown skill) |
+| POST | `/api/ai/completion/create/` | `{messages:[{role,content,skill?,images?:[{media_type,data}]}], provider?, model?, task_key?, temperature?, max_tokens?, trace_id?}` | `{content, provider, model, call_id, usage}`; `503` when no provider could answer; a user message with `skill` is expanded server-side (`404` for an unknown skill) |
 | POST | `/api/ai/completion/stream/` | same body | NDJSON events `start`, `delta`, `done` / `error` |
 | GET | `/api/ai/tool/list/` | | active tools the agent may call: `name`, `description`, `input_schema`, `risk` |
-| GET | `/api/ai/skill/list/` | | the caller's skills, by name: `id, name, description, content` |
-| POST | `/api/ai/skill/install/` | `{markdown, name?, replace?}` | `201`; parses front matter (`name`, `description`) or falls back to the first heading / paragraph; `400` on a duplicate unless `replace` |
+| GET | `/api/ai/skill/list/` | | the caller's skills, by name: `id, name, description, content, files:[{path,size}]` |
+| POST | `/api/ai/skill/install/` | `{markdown}` or `{archive}` (base64 zip ≤ 5 MB), plus `name?, replace?` | `201`; parses front matter (`name`, `description`) or falls back to the first heading / paragraph; `400` on a duplicate unless `replace`. For a zip, `data.skipped_files` lists entries left out |
 | GET | `/api/ai/skill/<name>/details/` | | |
 | PUT | `/api/ai/skill/<name>/update/` | `{markdown}` | a different `name` in the file renames it |
 | DELETE | `/api/ai/skill/<name>/delete/` | | |
@@ -119,6 +119,10 @@ Status machine: `idle → running → awaiting_tools | idle | error`. A step on 
 A skill is a Markdown file the user pastes into Settings > Skills and invokes as `/<name> args` in the composer. `SkillModel` rows are per user (`name` unique per user; no seeding). `SkillService.parse` reads YAML-ish front matter (`name`, `description`; `key: value` lines only, folded/literal blocks supported) and strips it; without front matter the first `# Heading` (slugified) and first paragraph are used.
 
 Invocation is server-side so the client never holds skill text: an agent step with `{content, skill}` stores the user turn as `SkillService.render(skill, content)` — a framing line, the instructions inside `<skill name="…">…</skill>`, and the arguments either replacing `$ARGUMENTS` or appended after — with `AgentMessageModel.skill` recording the name and the session title kept as `/name args`. The completion endpoints do the same for any user message carrying `skill`, which is how plain (tool-less) chats re-send a skill turn on later requests. An unknown skill is `400` on a step (session untouched) and `404` on a completion.
+
+A skill can also be a zip of a folder: the shallowest `SKILL.md` (any case) is the skill, and the other UTF-8 text files under it become `SkillFileModel` rows (≤ 100 files, 256 KB each, 2 MB total; binaries, hidden files and `__MACOSX` are skipped and reported). `render` lists them in a `<skill_files>` block. The model reads one through `read_skill_file`, the first **server-side tool** (`LlmToolModel.executor = server`): `_persist_assistant` answers it on the spot through `ServerToolService`, stores the call completed or failed, and reports it in `done.resolved_tool_calls`; the desktop shows a card and posts an empty `tool_results` step so the model sees the result. The tool is only offered to users who have bundled files. Nothing in a skill is ever executed.
+
+Completion user messages may carry `images` (png/jpeg/webp base64, ≤ 4). They are converted to each provider's image blocks for that call only; `LlmApiCallModel.prompt_text` records `[image <type>]`, never the data. `DATA_UPLOAD_MAX_MEMORY_SIZE` is 12 MB to fit them.
 
 ## Test
 

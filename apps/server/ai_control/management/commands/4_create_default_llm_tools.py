@@ -1,9 +1,10 @@
 """
 Seed the tool registry (``LlmToolModel``).
 
-Names and input schemas mirror the desktop's tool implementations in
-``packages/tools/src``; the client dispatches on ``name``, so keep them in
-sync. Existing rows are never overwritten, so re-running is safe; pass
+Names and input schemas of client tools mirror the desktop's implementations
+in ``packages/tools/src``; the client dispatches on ``name``, so keep them in
+sync. Server tools (``executor: server``) are answered by
+``ServerToolService`` and have no desktop counterpart. Existing rows are never overwritten, so re-running is safe; pass
 ``--update`` to refresh description, schema, risk and task keys.
 """
 from django.core.management.base import BaseCommand
@@ -117,13 +118,37 @@ DEFAULT_TOOLS = [
         "risk": LlmToolRiskChoices.SHELL.value,
         "priority": 50,
     },
+    {
+        # Answered by the server (ServerToolService), not the desktop: skill files live server-side.
+        "name": "read_skill_file",
+        "label": "Read skill file",
+        "description": (
+            "Read a file bundled with one of the user's skills (a reference, template or example listed under "
+            "<skill_files> when the skill was invoked). Returns the content with line numbers. "
+            "These files are not in the workspace; use read_file for workspace files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "skill": {"type": "string", "description": "Skill name, without the leading slash."},
+                "path": {"type": "string", "description": "File path exactly as listed, e.g. references/api.md."},
+                "offset": {"type": "integer", "minimum": 1, "description": "First line to return (1-based)."},
+                "limit": {"type": "integer", "minimum": 1, "description": "Maximum number of lines to return."},
+            },
+            "required": ["skill", "path"],
+            "additionalProperties": False,
+        },
+        "risk": LlmToolRiskChoices.READ.value,
+        "executor": LlmToolExecutorChoices.SERVER.value,
+        "priority": 60,
+    },
 ]
 
 UPDATABLE_FIELDS = ("label", "description", "input_schema", "risk", "executor", "task_keys")
 
 
 class Command(BaseCommand):
-    help = 'Create the default agent tool rows (ls, cs, read_file, write_file, bash)'
+    help = 'Create the default agent tool rows (ls, cs, read_file, write_file, bash, read_skill_file)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -134,7 +159,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         created_count = updated_count = skipped_count = 0
         for spec in DEFAULT_TOOLS:
-            spec = {**spec, "executor": LlmToolExecutorChoices.CLIENT.value, "task_keys": list(AGENT_TASKS)}
+            spec = {"executor": LlmToolExecutorChoices.CLIENT.value, **spec, "task_keys": list(AGENT_TASKS)}
             existing = LlmToolModel.objects.filter(name=spec["name"]).first()
             if existing is None:
                 LlmToolModel.objects.create(**spec)

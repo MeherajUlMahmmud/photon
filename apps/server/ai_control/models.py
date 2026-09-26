@@ -221,6 +221,30 @@ class SkillModel(BaseModel):
         return f"/{self.name}"
 
 
+class SkillFileModel(BaseModel):
+    """
+    A text file that came in a skill's zip next to its ``SKILL.md``:
+    references, templates, example scripts. The model reads one on demand
+    through the server-side ``read_skill_file`` tool; nothing here is ever
+    executed. Binary files are not stored.
+    """
+
+    skill = models.ForeignKey(SkillModel, on_delete=models.CASCADE, related_name='files')
+    path = models.CharField(max_length=255, help_text="Path inside the skill folder, e.g. 'references/api.md'.")
+    content = models.TextField()
+    size = models.PositiveIntegerField(help_text="Size in bytes as uploaded (UTF-8).")
+
+    class Meta:
+        db_table = "ai_control_skill_files"
+        verbose_name = "Skill file"
+        verbose_name_plural = "Skill files"
+        ordering = ["path"]
+        constraints = [models.UniqueConstraint(fields=["skill", "path"], name="skill_file_unique_path")]
+
+    def __str__(self):
+        return f"/{self.skill.name}/{self.path}"
+
+
 class AgentSessionModel(BaseModel):
     """
     One agent conversation. The server owns the transcript and drives the

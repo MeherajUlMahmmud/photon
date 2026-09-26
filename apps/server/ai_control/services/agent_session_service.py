@@ -29,11 +29,13 @@ from ai_control.choices import (
     AgentSessionStatusChoices,
     AgentStopReasonChoices,
     AgentToolCallStatusChoices,
+    LlmToolExecutorChoices,
     LlmToolRiskChoices,
 )
 from ai_control.llm.exceptions import AiControlError
 from ai_control.llm.orchestrator import LLMOrchestrator
 from ai_control.models import AgentMessageModel, AgentSessionModel, AgentToolCallModel, LlmApiCallModel, LlmToolModel
+from ai_control.services.server_tool_service import ServerToolService
 from ai_control.services.skill_service import SkillNotFound, SkillService
 
 logger = logging.getLogger(__name__)
@@ -203,7 +205,12 @@ class AgentSessionService:
     @staticmethod
     def tools_for(session: AgentSessionModel) -> List[LlmToolModel]:
         rows = LlmToolModel.objects.filter(is_active=True, is_deleted=False).order_by("priority", "name")
-        return [t for t in rows if t.offered_for(session.task_key)]
+        return [
+            t for t in rows
+            if t.offered_for(session.task_key)
+            # A server tool is only offered when it has something to work on (read_skill_file: bundled files).
+            and (t.executor != LlmToolExecutorChoices.SERVER or ServerToolService.available(t.name, session.user))
+        ]
 
     # ------------------------------------------------------------ transcript
 
@@ -470,6 +477,7 @@ class AgentSessionService:
             )
             pending: List[Dict[str, Any]] = []
             rejected: List[Dict[str, Any]] = []
+            resolved: List[Dict[str, Any]] = []
             for idx, call in enumerate(raw_calls):
                 name = cls.clean_tool_name(call.get("name"))
                 tool = by_name.get(name)
@@ -481,21 +489,34 @@ class AgentSessionService:
                     input=call.get("input") or {},
                     risk=risk, seq_in_message=idx, created_by=session.user,
                 )
+                server_side = tool is not None and tool.executor == LlmToolExecutorChoices.SERVER
                 if tool is None:
                     # Unknown tool: answer it ourselves so the model can recover.
                     row.status = AgentToolCallStatusChoices.FAILED
                     row.error = f"Unknown tool '{row.name}'. Available: {', '.join(sorted(by_name))}."
+                elif server_side:
+                    result = ServerToolService.run(name, session.user, row.input)
+                    row.status = AgentToolCallStatusChoices.COMPLETED if result.ok else AgentToolCallStatusChoices.FAILED
+                    row.output = result.output
+                    row.error = result.error
+                    row.duration_ms = 0
                 row.save()
                 if row.status == AgentToolCallStatusChoices.PENDING:
                     pending.append(cls._pending_payload(row))
+                elif server_side:
+                    resolved.append({
+                        "call_id": row.call_id, "name": row.name, "input": row.input, "risk": row.risk,
+                        "ok": row.status == AgentToolCallStatusChoices.COMPLETED,
+                        "output": cls._clip_output(row.output), "error": row.error,
+                    })
                 else:
                     rejected.append({"call_id": row.call_id, "name": row.name, "input": row.input, "error": row.error})
 
             session.step_count += 1
             if raw_calls:
-                # The model wants tools. With every call rejected there is nothing
-                # for the client to run, but the model still has to see the
-                # rejections: the session waits for an (empty) tool_results step.
+                # The model wants tools. With every call rejected or answered here
+                # there is nothing for the client to run, but the model still has
+                # to see the results: the session waits for an (empty) tool_results step.
                 session.status = AgentSessionStatusChoices.AWAITING_TOOLS
                 stop_reason = AgentStopReasonChoices.TOOL_USE.value
             else:
@@ -512,6 +533,7 @@ class AgentSessionService:
             "message_id": str(msg.id),
             "pending_tool_calls": pending,
             "rejected_tool_calls": rejected,
+            "resolved_tool_calls": resolved,
             "step_count": session.step_count,
         }
 

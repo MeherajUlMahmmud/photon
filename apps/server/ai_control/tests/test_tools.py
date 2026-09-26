@@ -7,10 +7,11 @@ from user_control.models import UserModel
 
 
 class SeedToolsCommandTests(TestCase):
-    def test_seeds_five_tools_in_priority_order(self):
+    def test_seeds_six_tools_in_priority_order(self):
         call_command('4_create_default_llm_tools', verbosity=0)
         names = list(LlmToolModel.objects.order_by('priority').values_list('name', flat=True))
-        self.assertEqual(names, ['ls', 'cs', 'read_file', 'write_file', 'bash'])
+        self.assertEqual(names, ['ls', 'cs', 'read_file', 'write_file', 'bash', 'read_skill_file'])
+        self.assertEqual(LlmToolModel.objects.get(name='read_skill_file').executor, 'server')
         bash = LlmToolModel.objects.get(name='bash')
         self.assertEqual(bash.risk, 'shell')
         self.assertEqual(bash.executor, 'client')
@@ -26,7 +27,7 @@ class SeedToolsCommandTests(TestCase):
         ls = LlmToolModel.objects.get(name='ls')
         self.assertNotEqual(ls.description, 'stale')
         self.assertEqual(ls.risk, 'read')
-        self.assertEqual(LlmToolModel.objects.count(), 5)
+        self.assertEqual(LlmToolModel.objects.count(), 6)
 
     def test_schema_for_model_and_task_filter(self):
         tool = LlmToolModel.objects.create(
@@ -53,7 +54,7 @@ class ToolListApiTests(APITestCase):
         res = self.client.get('/api/ai/tool/list/')
         self.assertEqual(res.status_code, 200)
         names = [t['name'] for t in res.json()['data']]
-        self.assertEqual(names, ['ls', 'cs', 'read_file', 'write_file'])
+        self.assertEqual(names, ['ls', 'cs', 'read_file', 'write_file', 'read_skill_file'])
         self.assertIn('input_schema', res.json()['data'][0])
 
     def test_requires_auth(self):
